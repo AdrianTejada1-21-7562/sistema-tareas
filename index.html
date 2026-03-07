@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Tareas - Dashboard</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="styles.css">
+    <!-- jsPDF and AutoTable for PDF Generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+</head>
+
+<body>
+    <div class="glass-container">
+        <!-- Header -->
+        <header class="dashboard-header animate-fade-in">
+            <h1><i data-lucide="layout-dashboard"></i> Sistema de Tareas</h1>
+            <div style="display: flex; align-items: center; gap: 1.5rem;">
+                <div id="syncStatus" class="sync-status"
+                    title="Pega tu WEB_APP_URL en app.js para conectar con Google Drive">
+                    <i data-lucide="cloud-off"></i> Sin conexión a Drive
+                </div>
+                <div class="current-date" id="currentDateDisplay"></div>
+            </div>
+        </header>
+
+        <main class="dashboard-grid">
+            <!-- Left Column: Task System -->
+            <section class="card glass-panel animate-slide-up" style="animation-delay: 0.1s;">
+                <h2 class="section-title"><i data-lucide="clipboard-list"></i> Registro de Tareas</h2>
+
+                <form id="taskForm" class="form-grid">
+                    <div class="input-group">
+                        <label for="taskName">Nombre</label>
+                        <input type="text" id="taskName" list="peopleNamesList" autocomplete="off" required
+                            placeholder="Ej. Adrián Tejada">
+                        <datalist id="peopleNamesList">
+                            <!-- Options injected by JS -->
+                        </datalist>
+                    </div>
+                    <div class="input-group">
+                        <label for="taskAssignment">Nombre de la asignación</label>
+                        <input type="text" id="taskAssignment" required placeholder="Ej. Proyecto Final">
+                    </div>
+                    <div class="input-group">
+                        <label for="taskDate">Fecha</label>
+                        <input type="date" id="taskDate" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="taskAmount">Monto ($)</label>
+                        <input type="number" id="taskAmount" step="0.01" required placeholder="0.00">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block"><i data-lucide="plus-circle"></i>
+                        REGISTRAR</button>
+                </form>
+
+                <div class="summary-box highlight-box mt-4">
+                    <h3>Monto total facturado:</h3>
+                    <div class="amount-display text-success" id="totalBilledAmount">$ 0.00</div>
+                </div>
+
+                <hr class="divider">
+
+                <h2 class="section-title"><i data-lucide="search"></i> Búsqueda por Persona</h2>
+                <div class="form-grid">
+                    <div class="input-group">
+                        <label for="searchPerson">Buscar persona</label>
+                        <input type="text" id="searchPerson" list="peopleNamesList" autocomplete="off"
+                            placeholder="Nombre a buscar...">
+                    </div>
+                    <button id="btnSearch" class="btn btn-secondary btn-block"><i data-lucide="search"></i>
+                        BUSCAR</button>
+                </div>
+
+                <div class="search-results mt-4">
+                    <!-- Información Personal (Inyectada por JS) -->
+                    <div id="searchPersonInfo"
+                        style="display: none; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                        <div
+                            style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">
+                            ESTUDIANTE / CLIENTE</div>
+                        <div id="searchPersonNameDisplay"
+                            style="font-size: 1.2rem; font-weight: 600; color: #fff; margin-top: 2px;">Adrián</div>
+                        <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 2px;">
+                            <i data-lucide="hash"
+                                style="width:12px; height:12px; display:inline-block; vertical-align:middle;"></i>
+                            Matrícula: <span id="searchPersonMatDisplay" style="color: #fff;">10034</span>
+                        </div>
+                    </div>
+
+                    <div class="result-row">
+                        <span>Total generado en tareas:</span>
+                        <strong id="searchTotalAmount">$ 0.00</strong>
+                    </div>
+                    <div class="result-row">
+                        <span>Total Abonado / Pagado:</span>
+                        <strong id="searchAbonadoAmount" class="text-success">$ 0.00</strong>
+                    </div>
+                    <div class="result-row"
+                        style="border-top: 1px dashed rgba(255,255,255,0.2); margin-top: 8px; padding-top: 8px;">
+                        <span>Balance pendiente:</span>
+                        <strong id="searchPaidAmount" class="text-danger" style="font-size: 1.1rem;">$ 0.00</strong>
+                    </div>
+                </div>
+
+                <div class="payment-section mt-4" id="paymentSection"
+                    style="display: none; background: rgba(0,0,0,0.1); padding: 15px; border-radius: 8px;">
+                    <h3 class="mb-2" style="font-size: 0.9rem;"><i data-lucide="dollar-sign"
+                            style="width: 16px; height: 16px; display: inline-block; vertical-align: text-bottom;"></i>
+                        Registrar Pago / Abono</h3>
+                    <div class="form-grid" style="grid-template-columns: 1fr auto;">
+                        <div class="input-group">
+                            <input type="number" id="paymentAmountInput" step="0.01" placeholder="Monto ($)...">
+                        </div>
+                        <button id="btnRegisterPayment" class="btn btn-primary"><i data-lucide="check"></i>
+                            ABONAR</button>
+                    </div>
+                </div>
+
+                <div class="task-history-container mt-4" style="display: none;" id="searchHistoryContainer">
+                    <h3 class="mb-2" style="font-size: 0.9rem; color: var(--text-muted);"><i data-lucide="history"
+                            style="width: 16px; height: 16px; display: inline-block; vertical-align: text-bottom;"></i>
+                        Historial de Tareas:</h3>
+                    <div class="table-container" style="max-height: 200px; overflow-y: auto;">
+                        <table class="data-table" style="font-size: 0.85rem;">
+                            <thead>
+                                <tr>
+                                    <th>FECHA</th>
+                                    <th>ASIGNACIÓN</th>
+                                    <th>MONTO</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="searchHistoryBody">
+                                <!-- Filas del historial inyectadas via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <button id="btnExportPDF" class="btn btn-secondary btn-sm mt-3"
+                        style="width: 100%; display: flex; justify-content: center; align-items: center; gap: 8px; background-color: var(--primary);">
+                        <i data-lucide="file-down" style="width: 16px; height: 16px;"></i> EXPORTAR RECIBO (PDF)
+                    </button>
+                </div>
+            </section>
+
+            <!-- Right Column: Expenses & Summary -->
+            <div class="right-column-wrapper">
+                <section class="card glass-panel animate-slide-up" style="animation-delay: 0.2s;">
+                    <div class="section-header-flex">
+                        <h2 class="section-title"><i data-lucide="wallet"></i> Gastos Mensuales</h2>
+                        <select id="monthSelector" class="month-select">
+                            <option value="1">ENERO</option>
+                            <option value="2" selected>FEBRERO</option>
+                            <option value="3">MARZO</option>
+                            <option value="4">ABRIL</option>
+                            <option value="5">MAYO</option>
+                            <option value="6">JUNIO</option>
+                            <option value="7">JULIO</option>
+                            <option value="8">AGOSTO</option>
+                            <option value="9">SEPTIEMBRE</option>
+                            <option value="10">OCTUBRE</option>
+                            <option value="11">NOVIEMBRE</option>
+                            <option value="12">DICIEMBRE</option>
+                        </select>
+                    </div>
+
+                    <div class="table-container">
+                        <table class="data-table" id="expensesTable">
+                            <thead>
+                                <tr>
+                                    <th>ORDEN</th>
+                                    <th>TIPO DE GASTO</th>
+                                    <th>MONTO</th>
+                                    <th>CUBIERTO ($)</th>
+                                    <th>ESTADO</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Dynamic Expense Rows will be injected here -->
+                            </tbody>
+                        </table>
+                        <button id="addExpenseBtn" class="btn btn-outline btn-sm mt-2"><i data-lucide="plus"></i> Añadir
+                            Gasto</button>
+                    </div>
+                </section>
+
+                <section class="card glass-panel summary-dashboard animate-slide-up" style="animation-delay: 0.3s;">
+                    <h2 class="section-title"><i data-lucide="pie-chart"></i> Resumen Financiero</h2>
+                    <div class="metrics-grid">
+                        <div class="metric-card warning">
+                            <span class="metric-label">Total Gastos</span>
+                            <span class="metric-value" id="totalExpenses">$ 0.00</span>
+                        </div>
+                        <div class="metric-card success">
+                            <span class="metric-label">Ganancia Generada Mensual</span>
+                            <span class="metric-value" id="monthlyGenerated">$ 0.00</span>
+                        </div>
+                        <div class="metric-card success">
+                            <span class="metric-label">Ganancia Pagada Mensual</span>
+                            <span class="metric-value" id="monthlyPaid">$ 0.00</span>
+                        </div>
+                        <div class="metric-card danger">
+                            <span class="metric-label">Total Diferencia</span>
+                            <span class="metric-value" id="totalDifference">$ 0.00</span>
+                        </div>
+                    </div>
+
+                    <div class="annual-summary mt-4">
+                        <div class="metric-row">
+                            <span>Total Ganancia Generada Anual:</span>
+                            <strong class="text-success" id="annualGenerated">$ 0.00</strong>
+                        </div>
+                        <div class="metric-row mt-2">
+                            <span>Meta Total de Tareas:</span>
+                            <input type="number" id="tasksGoal" class="goal-input" value="100">
+                        </div>
+                        <div class="metric-row mt-2">
+                            <span>Meta Cumplida:</span>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar" id="goalProgressBar" style="width: 0%;">0%</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Top 5 Payers Section -->
+                    <div class="top-payers-section mt-4 pt-3" style="border-top: 1px solid rgba(255,255,255,0.1);">
+                        <h3 class="mb-3"
+                            style="font-size: 0.95rem; color: var(--primary); display: flex; align-items: center; gap: 0.5rem;">
+                            <i data-lucide="award" style="width: 18px; height: 18px;"></i>
+                            Top 5 Pagadores del Mes
+                        </h3>
+                        <div class="table-container" style="background: rgba(0,0,0,0.15); border-radius: 6px;">
+                            <table class="data-table" style="font-size: 0.85rem; margin-bottom: 0;">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 40px;">#</th>
+                                        <th>PERSONA</th>
+                                        <th class="text-right">TOTAL PAGADO</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="topPayersBody">
+                                    <!-- Filled by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Pending Balances (Deudores) Section -->
+                    <div class="pending-balances-section mt-4 pt-3"
+                        style="border-top: 1px solid rgba(255,255,255,0.1);">
+                        <h3 class="mb-3"
+                            style="font-size: 0.95rem; color: var(--danger); display: flex; align-items: center; gap: 0.5rem;">
+                            <i data-lucide="alert-circle" style="width: 18px; height: 18px;"></i>
+                            Pendientes de Pago
+                        </h3>
+                        <div class="table-container"
+                            style="background: rgba(0,0,0,0.15); border-radius: 6px; max-height: 250px; overflow-y: auto;">
+                            <table class="data-table" style="font-size: 0.85rem; margin-bottom: 0;">
+                                <thead style="position: sticky; top: 0; background: var(--bg-color); z-index: 10;">
+                                    <tr>
+                                        <th>PERSONA</th>
+                                        <th class="text-right">DEUDA</th>
+                                        <th style="width: 40px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="pendingBalancesBody">
+                                    <!-- Filled by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Bottom Section: People Tracker -->
+            <section class="card glass-panel full-width-card animate-slide-up" style="animation-delay: 0.4s;">
+                <div class="section-header-flex">
+                    <h2 class="section-title"><i data-lucide="users"></i> Seguimiento de Personas y Alertas</h2>
+                    <div>
+                        <button id="clearFiltersBtn" class="btn btn-outline btn-sm" style="display: none;"><i
+                                data-lucide="filter-x"></i> Borrar Filtros</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table tracking-table" id="peopleTable">
+                        <thead>
+                            <tr>
+                                <th>
+                                    <div class="th-content">MATRICULA <button class="filter-btn" data-col="matricula"><i
+                                                data-lucide="chevron-down"></i></button></div>
+                                </th>
+                                <th>
+                                    <div class="th-content">NOMBRE <button class="filter-btn" data-col="name"><i
+                                                data-lucide="chevron-down"></i></button></div>
+                                </th>
+                                <th>
+                                    <div class="th-content">PRÓXIMO A VENCER <button class="filter-btn"
+                                            data-col="nextDate"><i data-lucide="chevron-down"></i></button></div>
+                                </th>
+                                <th>OBSERVACIÓN</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Dynamic People Rows will be injected here -->
+                        </tbody>
+                    </table>
+                    <button id="addPersonBtn" class="btn btn-outline btn-sm mt-2"><i data-lucide="user-plus"></i> Añadir
+                        Persona</button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Excel Filter Menu Popup -->
+    <div id="filterMenu" class="filter-menu hidden">
+        <div class="filter-sort-options">
+            <button class="btn-sort" data-dir="asc"><i data-lucide="arrow-down-a-z"></i> Ordenar A a Z</button>
+            <button class="btn-sort" data-dir="desc"><i data-lucide="arrow-down-z-a"></i> Ordenar Z a A</button>
+        </div>
+        <div class="filter-divider"></div>
+        <div class="filter-search">
+            <input type="text" id="filterSearchInput" placeholder="Buscar (Todos)">
+        </div>
+        <div class="filter-list" id="filterList">
+            <!-- Checkboxes dinámicos aquí -->
+        </div>
+        <div class="filter-actions">
+            <button id="btnApplyFilter" class="btn btn-primary btn-sm">Aceptar</button>
+            <button id="btnCancelFilter" class="btn btn-outline btn-sm">Cancelar</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+
+</html>
