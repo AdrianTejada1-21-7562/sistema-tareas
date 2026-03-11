@@ -480,38 +480,74 @@ const calculateSummary = () => {
     // Calcular y renderizar Deudores (Pendientes de Pago)
     const pendingBalancesBody = document.getElementById('pendingBalancesBody');
     if (pendingBalancesBody) {
-        // Map to quickly get payments by person
-        const paymentsByName = {};
+        const normalizeString = (str) => {
+            if (!str) return '';
+            return str.toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+        };
+
+        // 1. Crear grupos canónicos basados en las personas existentes
+        const canonicalGroups = {}; // Key: normalized, Value: { nameDisplay, totalPaid, matricula }
+
         state.people.forEach(p => {
-            const nameKey = p.name.trim().toLowerCase();
-            let total = 0;
-            if (Array.isArray(p.payments)) {
-                total = p.payments.reduce((sum, payment) => sum + parseFloat(payment.amount), 0);
+            const normalized = normalizeString(p.name);
+            if (!normalized) return;
+
+            // Buscar si ya existe un grupo que sea subcadena o supercadena (ej. "Ana" y "Ana Martinez")
+            let foundKey = Object.keys(canonicalGroups).find(k => 
+                normalized.includes(k) || k.includes(normalized)
+            );
+
+            const pPaid = Array.isArray(p.payments) 
+                ? p.payments.reduce((s, pay) => s + parseFloat(pay.amount), 0) 
+                : parseFloat(p.lastPayment || 0);
+
+            if (foundKey) {
+                // Si el nombre nuevo es más largo, lo usamos como display principal (más descriptivo)
+                if (p.name.length > canonicalGroups[foundKey].nameDisplay.length) {
+                    canonicalGroups[foundKey].nameDisplay = p.name;
+                }
+                canonicalGroups[foundKey].totalPaid += pPaid;
+                if (!canonicalGroups[foundKey].matricula && p.matricula) canonicalGroups[foundKey].matricula = p.matricula;
             } else {
-                total = parseFloat(p.lastPayment || 0); // fallback legacy
-            }
-            paymentsByName[nameKey] = { totalPaid: total, matricula: p.matricula };
-        });
-
-        // Sum task amounts by person
-        const debtorsMap = {};
-        state.tasks.forEach(t => {
-            if (!t.name) return;
-            const nameKey = t.name.trim().toLowerCase();
-
-            if (!debtorsMap[nameKey]) {
-                const pInfo = paymentsByName[nameKey] || { totalPaid: 0, matricula: '' };
-                debtorsMap[nameKey] = {
-                    nameDisplay: t.name,
-                    taskTotal: 0,
-                    paidTotal: pInfo.totalPaid,
-                    matricula: pInfo.matricula
+                canonicalGroups[normalized] = {
+                    nameDisplay: p.name,
+                    totalPaid: pPaid,
+                    matricula: p.matricula
                 };
             }
-            debtorsMap[nameKey].taskTotal += parseFloat(t.amount || 0);
         });
 
-        // Calculate pending and filter > 0
+        // 2. Agrupar tareas y calcular deudas usando los grupos canónicos
+        const debtorsMap = {}; // Key: groupKey, Value: { nameDisplay, taskTotal, paidTotal, matricula }
+
+        state.tasks.forEach(t => {
+            if (!t.name) return;
+            const normTaskName = normalizeString(t.name);
+
+            // Encontrar el mejor grupo canónico para esta tarea
+            let bestKey = Object.keys(canonicalGroups).find(k => 
+                normTaskName.includes(k) || k.includes(normTaskName)
+            );
+
+            if (!bestKey) {
+                // Si la persona no está en la lista de personas, creamos un grupo temporal
+                bestKey = normTaskName;
+                if (!debtorsMap[bestKey]) {
+                    debtorsMap[bestKey] = { nameDisplay: t.name, taskTotal: 0, paidTotal: 0, matricula: '' };
+                }
+            } else if (!debtorsMap[bestKey]) {
+                const group = canonicalGroups[bestKey];
+                debtorsMap[bestKey] = {
+                    nameDisplay: group.nameDisplay,
+                    taskTotal: 0,
+                    paidTotal: group.totalPaid,
+                    matricula: group.matricula
+                };
+            }
+            debtorsMap[bestKey].taskTotal += parseFloat(t.amount || 0);
+        });
+
+        // 3. Crear lista de deudores con balance positivo
         const debtors = [];
         for (const [key, data] of Object.entries(debtorsMap)) {
             const pending = data.taskTotal - data.paidTotal;
@@ -795,9 +831,9 @@ const setupEventListeners = () => {
         }
 
         const normalizeString = (str) => {
-            return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+            if (!str) return '';
+            return str.toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
         };
-
         const queryNormalized = normalizeString(query);
 
         // Ordenar tareas por fecha más reciente
@@ -828,42 +864,49 @@ const setupEventListeners = () => {
         document.getElementById('searchTotalAmount').textContent = formatCurrency(total);
 
         // Calcular cuánto ha abonado/pagado esta persona (buscando en el array state.people)
-        // Como el buscador usa query string abierto, buscaremos a la persona más afín en la DB de personas.
-        const personMatch = state.people.find(p => normalizeString(p.name).includes(queryNormalized));
+        // Buscar todas las coincidencias de personas similitud
+        const matches = state.people.filter(p => {
+            const pName = normalizeString(p.name);
+            return pName.includes(queryNormalized) || queryNormalized.includes(pName);
+        });
+
         let totalPaid = 0;
+        let bestPerson = null;
+
+        if (matches.length > 0) {
+            // Pick the one with the most similar (longest) name as display
+            bestPerson = matches.reduce((prev, curr) => curr.name.length > prev.name.length ? curr : prev);
+            
+            matches.forEach(m => {
+                if (!Array.isArray(m.payments)) {
+                    const oldVal = parseFloat(m.lastPayment || 0);
+                    m.payments = oldVal > 0 ? [{ amount: oldVal, date: new Date().toISOString() }] : [];
+                }
+                totalPaid += m.payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+            });
+        }
 
         const personInfoContainer = document.getElementById('searchPersonInfo');
-        if (personMatch) {
-            // Mostrar nombre y matrícula exactos
-            document.getElementById('searchPersonNameDisplay').textContent = personMatch.name;
-            document.getElementById('searchPersonMatDisplay').textContent = personMatch.matricula || '(Sin Matrícula)';
+        if (bestPerson) {
+            document.getElementById('searchPersonNameDisplay').textContent = bestPerson.name;
+            document.getElementById('searchPersonMatDisplay').textContent = bestPerson.matricula || '(Sin Matrícula)';
             personInfoContainer.style.display = 'block';
-
-            // Migrar a nuevo formato de array de abonos si es necesario
-            if (!Array.isArray(personMatch.payments)) {
-                // Compatibilidad hacia atrás: Si tenía lastPayment numérico, lo convertimos a un abono antiguo
-                const oldVal = parseFloat(personMatch.lastPayment || 0);
-                personMatch.payments = oldVal > 0 ? [{ amount: oldVal, date: new Date().toISOString() }] : [];
-            }
-            totalPaid = personMatch.payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
         } else {
             personInfoContainer.style.display = 'none';
         }
 
         document.getElementById('searchAbonadoAmount').textContent = formatCurrency(totalPaid);
-        document.getElementById('searchPaidAmount').textContent = formatCurrency(Math.max(0, total - totalPaid)); // Balance Pendiente
+        document.getElementById('searchPaidAmount').textContent = formatCurrency(Math.max(0, total - totalPaid));
 
-        // Mostrar u ocultar tabla de historial y pagos
         const paymentSection = document.getElementById('paymentSection');
-        if (foundTasks || personMatch) {
+        if (foundTasks || bestPerson) {
             historyBody.innerHTML = htmlRows || '<tr><td colspan="4" class="text-center text-muted">No hay tareas registradas para esta persona.</td></tr>';
             historyContainer.style.display = 'block';
             paymentSection.style.display = 'block';
             lucide.createIcons();
 
-            // Si encontramos a la persona exacta, guardamos su ID temporalmente para el botón de pago
-            if (personMatch) {
-                paymentSection.dataset.personId = personMatch.id;
+            if (bestPerson) {
+                paymentSection.dataset.personId = bestPerson.id;
             } else {
                 delete paymentSection.dataset.personId;
             }
@@ -1135,9 +1178,21 @@ const attachPeopleEvents = () => {
         const val = e.target.value;
         const p = state.people.find(x => x.id === id);
         if (p) {
+            if (field === 'name' && p.name !== val) {
+                const oldName = p.name;
+                const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+                const oldNormalized = normalize(oldName);
+                
+                // Actualizar todas las tareas que coincidan con el nombre antiguo
+                state.tasks.forEach(task => {
+                    if (normalize(task.name) === oldNormalized) {
+                        task.name = val;
+                    }
+                });
+            }
             p[field] = val;
             saveData();
-            if (field === 'nextDate') renderPeople(); // Para recalcular colores
+            if (field === 'nextDate' || field === 'name') renderAll(); // Redibujar todo si cambia el nombre para actualizar deudores
         }
     };
 
