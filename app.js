@@ -369,14 +369,31 @@ const autoAllocateExpenses = (totalIncomeAvailable) => {
 };
 
 const calculateSummary = () => {
-    const totalTareasGlobal = state.tasks.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
-    document.getElementById('totalBilledAmount').textContent = formatCurrency(totalTareasGlobal);
+    const currentMonthNum = parseInt(state.currentMonth);
+    const currentYearNum = new Date().getFullYear();
 
-    // Calcular el total de DINERO REAL que ha ingresado (Suma de todos los pagos)
+    const tasksDelMes = state.tasks.filter(t => {
+        if (!t.date) return false;
+        // La fecha de la tarea viene como YYYY-MM-DD
+        const [y, m, d] = t.date.split('-');
+        return parseInt(m) === currentMonthNum && parseInt(y) === currentYearNum;
+    });
+
+    const totalTareasMes = tasksDelMes.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+    document.getElementById('totalBilledAmount').textContent = formatCurrency(totalTareasMes);
+
+    // Calcular el total de DINERO REAL que ha ingresado ESTE MES
     let totalRealIncome = 0;
     state.people.forEach(p => {
         if (Array.isArray(p.payments)) {
-            totalRealIncome += p.payments.reduce((sum, payment) => sum + parseFloat(payment.amount), 0);
+            totalRealIncome += p.payments.reduce((sum, payment) => {
+                if (!payment.date) return sum;
+                const pd = new Date(payment.date);
+                if (pd.getMonth() + 1 === currentMonthNum && pd.getFullYear() === currentYearNum) {
+                    return sum + parseFloat(payment.amount);
+                }
+                return sum;
+            }, 0);
         } else {
             totalRealIncome += parseFloat(p.lastPayment || 0);
         }
@@ -414,12 +431,12 @@ const calculateSummary = () => {
     const totalGastos = state.expenses.reduce((sum, exp) => sum + parseFloat(exp.amount || 0), 0);
     document.getElementById('totalExpenses').textContent = formatCurrency(totalGastos);
 
-    // Ganancia Generada Mensual = Total de ingreso real cobrado
+    // Ganancia Generada Mensual = Total de ingreso real cobrado ESTE MES
     const gananciaGeneradaMensual = totalRealIncome;
     document.getElementById('monthlyGenerated').textContent = formatCurrency(gananciaGeneradaMensual);
 
-    // Ganancia Pagada Mensual = Total tareas registradas (lo que deberían pagar)
-    const gananciaPagadaMensual = totalTareasGlobal;
+    // Ganancia Pagada Mensual = Total tareas registradas ESTE MES (lo que deberían pagar)
+    const gananciaPagadaMensual = totalTareasMes;
     document.getElementById('monthlyPaid').textContent = formatCurrency(gananciaPagadaMensual);
 
     const totalDiferencia = gananciaGeneradaMensual - totalGastos;
@@ -836,11 +853,27 @@ const setupEventListeners = () => {
         };
         const queryNormalized = normalizeString(query);
 
-        // Ordenar tareas por fecha más reciente
+        // 1. Encontrar a la persona con nombre más similar en la lista de Personas
+        const matches = state.people.filter(p => {
+            const pName = normalizeString(p.name);
+            return pName.includes(queryNormalized) || queryNormalized.includes(pName);
+        });
+
+        let bestPerson = null;
+        if (matches.length > 0) {
+            bestPerson = matches.reduce((prev, curr) => curr.name.length > prev.name.length ? curr : prev);
+        }
+
+        // Si encontramos a la persona, usamos su nombre canónico para buscar tareas y pagos
+        const searchTargetNormalized = bestPerson ? normalizeString(bestPerson.name) : queryNormalized;
+
+        // 2. Ordenar tareas y filtrar
         const sortedTasks = [...state.tasks].sort((a, b) => new Date(b.date) - new Date(a.date));
 
         sortedTasks.forEach(t => {
-            if (normalizeString(t.name).includes(queryNormalized)) {
+            const normTask = normalizeString(t.name);
+            // Misma lógica de cruce que en "Pendientes de Pago"
+            if (normTask.includes(searchTargetNormalized) || searchTargetNormalized.includes(normTask)) {
                 total += parseFloat(t.amount || 0);
                 foundTasks = true;
 
@@ -863,26 +896,35 @@ const setupEventListeners = () => {
 
         document.getElementById('searchTotalAmount').textContent = formatCurrency(total);
 
-        // Calcular cuánto ha abonado/pagado esta persona (buscando en el array state.people)
-        // Buscar todas las coincidencias de personas similitud
-        const matches = state.people.filter(p => {
-            const pName = normalizeString(p.name);
-            return pName.includes(queryNormalized) || queryNormalized.includes(pName);
-        });
-
+        // 3. Procesar pagos de la persona encontrada
         let totalPaid = 0;
-        let bestPerson = null;
+        let paymentsHtml = '';
+        let lastPaymentDate = '-';
 
-        if (matches.length > 0) {
-            // Pick the one with the most similar (longest) name as display
-            bestPerson = matches.reduce((prev, curr) => curr.name.length > prev.name.length ? curr : prev);
-            
-            matches.forEach(m => {
-                if (!Array.isArray(m.payments)) {
-                    const oldVal = parseFloat(m.lastPayment || 0);
-                    m.payments = oldVal > 0 ? [{ amount: oldVal, date: new Date().toISOString() }] : [];
-                }
-                totalPaid += m.payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        if (bestPerson) {
+            if (!Array.isArray(bestPerson.payments)) {
+                const oldVal = parseFloat(bestPerson.lastPayment || 0);
+                bestPerson.payments = oldVal > 0 ? [{ amount: oldVal, date: new Date().toISOString() }] : [];
+            }
+
+            const sortedPayments = [...bestPerson.payments].sort((a, b) => new Date(b.date) - new Date(a.date));
+            if (sortedPayments.length > 0) {
+                lastPaymentDate = new Date(sortedPayments[0].date).toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+            }
+
+            sortedPayments.forEach((p) => {
+                totalPaid += parseFloat(p.amount);
+                const dStr = p.date ? new Date(p.date).toLocaleDateString('es-ES') : '';
+                const idxOriginal = bestPerson.payments.indexOf(p);
+                paymentsHtml += `
+                    <tr>
+                        <td>${dStr}</td>
+                        <td class="text-success">${formatCurrency(p.amount)}</td>
+                        <td class="text-right">
+                            <button class="btn btn-delete btn-sm delete-payment-btn" data-person-id="${bestPerson.id}" data-payment-idx="${idxOriginal}" style="padding: 0.2rem;" title="Eliminar Pago"><i data-lucide="trash-2"></i></button>
+                        </td>
+                    </tr>
+                `;
             });
         }
 
@@ -890,6 +932,8 @@ const setupEventListeners = () => {
         if (bestPerson) {
             document.getElementById('searchPersonNameDisplay').textContent = bestPerson.name;
             document.getElementById('searchPersonMatDisplay').textContent = bestPerson.matricula || '(Sin Matrícula)';
+            const lastPaymentDisplay = document.getElementById('searchPersonLastPaymentDisplay');
+            if (lastPaymentDisplay) lastPaymentDisplay.textContent = lastPaymentDate;
             personInfoContainer.style.display = 'block';
         } else {
             personInfoContainer.style.display = 'none';
@@ -900,7 +944,13 @@ const setupEventListeners = () => {
 
         const paymentSection = document.getElementById('paymentSection');
         if (foundTasks || bestPerson) {
-            historyBody.innerHTML = htmlRows || '<tr><td colspan="4" class="text-center text-muted">No hay tareas registradas para esta persona.</td></tr>';
+            historyBody.innerHTML = htmlRows || '<tr><td colspan="4" class="text-center text-muted">No hay tareas registradas.</td></tr>';
+            
+            const paymentsBody = document.getElementById('searchPaymentsBody');
+            if (paymentsBody) {
+                paymentsBody.innerHTML = paymentsHtml || '<tr><td colspan="3" class="text-center text-muted">No hay pagos registrados.</td></tr>';
+            }
+
             historyContainer.style.display = 'block';
             paymentSection.style.display = 'block';
             lucide.createIcons();
@@ -915,6 +965,23 @@ const setupEventListeners = () => {
             paymentSection.style.display = 'none';
         }
     });
+
+    // 2.0.0 Eliminar Pago
+    document.addEventListener('click', (e) => {
+        const deletePaymentBtn = e.target.closest('.delete-payment-btn');
+        if (deletePaymentBtn) {
+            const personId = parseInt(deletePaymentBtn.dataset.personId);
+            const paymentIdx = parseInt(deletePaymentBtn.dataset.paymentIdx);
+            
+            if (confirm('¿Estás seguro de que deseas eliminar este pago?')) {
+                const person = state.people.find(p => p.id === personId);
+                if (person && Array.isArray(person.payments)) {
+                    person.payments.splice(paymentIdx, 1);
+                    saveData();
+                    document.getElementById('btnSearch').click(); // Recargar búsqueda
+                }
+            }
+        }
 
     // 2.0 Botón Exportar PDF (General de la Búsqueda)
     document.getElementById('btnExportPDF').addEventListener('click', () => {
