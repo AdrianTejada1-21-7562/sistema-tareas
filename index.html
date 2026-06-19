@@ -29,6 +29,17 @@
             </div>
         </header>
 
+        <style>
+            @keyframes slideInRight {
+                from { transform: translateX(120%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes fadeOutRight {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(120%); opacity: 0; }
+            }
+        </style>
+
         <main class="dashboard-grid">
             <!-- Left Column: Task System -->
             <section class="card glass-panel animate-slide-up" style="animation-delay: 0.1s;">
@@ -362,6 +373,11 @@
         </div>
     </div>
 
+    <div id="toastContainer" style="position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none;">
+        <style>
+            #toastContainer .toast-item { pointer-events: auto; }
+        </style>
+    </div>
     <script src="app.js"></script>
     <script>
         lucide.createIcons();

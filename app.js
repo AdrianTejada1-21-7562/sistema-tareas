@@ -25,9 +25,10 @@ let state = {
 let editingTaskId = null; // Para editar tareas
 
 // --- Runtime UI State ---
+let dismissedAlerts = new Set();
 let filterState = {
-    sortCol: null,
-    sortDir: null,
+    sortCol: 'nextDate',
+    sortDir: 'asc',
     activePopupCol: null,
     checkboxesStatus: {
         matricula: null,
@@ -283,6 +284,11 @@ const renderPeople = () => {
         peopleToRender.sort((a, b) => {
             const valA = (a[filterState.sortCol] || '').toLowerCase();
             const valB = (b[filterState.sortCol] || '').toLowerCase();
+            
+            // Push empty values to the bottom regardless of sort direction
+            if (!valA && valB) return 1;
+            if (valA && !valB) return -1;
+            
             if (valA < valB) return filterState.sortDir === 'asc' ? -1 : 1;
             if (valA > valB) return filterState.sortDir === 'asc' ? 1 : -1;
             return 0;
@@ -338,6 +344,61 @@ const renderPeople = () => {
         `;
         tbody.appendChild(tr);
     });
+
+    // Toasts (Due today or overdue) floating bottom right
+    const toastContainer = document.getElementById('toastContainer');
+    if (toastContainer) {
+        let toastsHtml = '';
+        state.people.forEach(person => {
+            if (person.nextDate) {
+                const alertKey = person.id + '_' + person.nextDate;
+                if (dismissedAlerts.has(alertKey)) return;
+
+                const [y, m, d] = person.nextDate.split('-');
+                const localNextDate = new Date(y, m - 1, d);
+                localNextDate.setHours(0, 0, 0, 0);
+                
+                const diffTime = localNextDate - today;
+                const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+                
+                if (diffDays <= 0) {
+                    const isToday = diffDays === 0;
+                    const accentColor = isToday ? '#ff4d4d' : '#475569'; // Red for today, grayish for dead
+                    const bgOverlay = isToday ? 'rgba(30, 41, 59, 0.95)' : 'rgba(15, 23, 42, 0.95)'; // Darker bg for dead
+                    const deadStyle = isToday ? '' : 'opacity: 0.7; filter: grayscale(100%); text-decoration: line-through;';
+                    const iconName = isToday ? 'alert-circle' : 'skull';
+                    
+                    toastsHtml += `
+                        <div class="toast-item" data-alert-key="${alertKey}" style="pointer-events: auto; background: ${bgOverlay}; backdrop-filter: blur(10px); padding: 15px; border-radius: 8px; border-left: 4px solid ${accentColor}; box-shadow: 0 10px 25px rgba(0,0,0,0.5); display: flex; align-items: flex-start; gap: 12px; min-width: 300px; max-width: 350px; animation: slideInRight 0.3s ease forwards;">
+                            <div style="color: ${accentColor}; margin-top: 2px;">
+                                <i data-lucide="${iconName}" style="width: 20px; height: 20px;"></i>
+                            </div>
+                            <div style="flex: 1;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                    <span style="font-size: 0.8rem; font-weight: bold; color: ${accentColor}; text-transform: uppercase; letter-spacing: 1px;">${isToday ? '¡PARA HOY!' : 'VENCIDA (MUERTA)'}</span>
+                                    <button class="dismiss-toast-btn" style="background: none; border: none; color: #a0aec0; cursor: pointer; padding: 0; transition: color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#a0aec0'"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
+                                </div>
+                                <div style="font-weight: 600; color: #fff; font-size: 1rem; margin-bottom: 4px; ${deadStyle}">${person.name}</div>
+                                <div style="font-size: 0.85rem; color: #cbd5e1; ${deadStyle}">Obs: ${person.observation || 'Ninguna'}</div>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+        });
+        
+        toastContainer.innerHTML = toastsHtml;
+        
+        toastContainer.querySelectorAll('.dismiss-toast-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const toast = e.target.closest('.toast-item');
+                const key = toast.dataset.alertKey;
+                dismissedAlerts.add(key);
+                toast.style.animation = 'fadeOutRight 0.3s ease forwards';
+                setTimeout(() => toast.remove(), 300);
+            });
+        });
+    }
 
     lucide.createIcons();
     attachPeopleEvents();
@@ -982,6 +1043,7 @@ const setupEventListeners = () => {
                 }
             }
         }
+    });
 
     // 2.0 Botón Exportar PDF (General de la Búsqueda)
     document.getElementById('btnExportPDF').addEventListener('click', () => {
