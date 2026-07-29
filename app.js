@@ -109,14 +109,39 @@ const init = async () => {
     }
 };
 
+let cloudSyncTimeout = null;
+
 const saveData = () => {
+    // Guardado local: siempre instantáneo, la UI nunca espera por la nube para reflejar el cambio.
     localStorage.setItem('sistemaTareasData', JSON.stringify(state));
     calculateSummary();
 
     if (WEB_APP_URL) {
-        syncToCloud();
+        // Agrupamos varias acciones seguidas (ej. borrar 3 cosas rápido) en una sola llamada a
+        // Google Apps Script en vez de disparar una petición lenta por cada clic.
+        const statusEl = document.getElementById('syncStatus');
+        if (statusEl) {
+            statusEl.className = 'sync-status sync-loading';
+            statusEl.innerHTML = '<i data-lucide="refresh-cw"></i> Guardando...';
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+        clearTimeout(cloudSyncTimeout);
+        cloudSyncTimeout = setTimeout(syncToCloud, 800);
     }
 };
+
+// Como la app está dividida en varias páginas (index.html / finanzas.html), navegar entre ellas
+// recarga todo. Si el usuario cambia de página antes de que termine el debounce de arriba,
+// mandamos el guardado pendiente de forma confiable con sendBeacon en vez de perderlo.
+window.addEventListener('pagehide', () => {
+    if (cloudSyncTimeout && WEB_APP_URL) {
+        clearTimeout(cloudSyncTimeout);
+        cloudSyncTimeout = null;
+        const jsonData = JSON.stringify(state);
+        const blob = new Blob([`action=save&data=${encodeURIComponent(jsonData)}`], { type: 'application/x-www-form-urlencoded' });
+        navigator.sendBeacon(WEB_APP_URL, blob);
+    }
+});
 
 const syncToCloud = () => {
     const statusEl = document.getElementById('syncStatus');
