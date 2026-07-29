@@ -199,43 +199,26 @@ const loadFromCloud = () => {
             clearTimeout(timeout);
             try {
                 if (data && data.tasks) {
-                    // Armamos el estado que traería la nube antes de tocar nada
-                    const incoming = {
-                        tasks: data.tasks || [],
-                        capitalSources: data.capitalSources || [],
-                        borrowers: data.borrowers || [],
-                        loans: data.loans || [],
-                        loanPayments: data.loanPayments || [],
-                        debts: data.debts || [],
-                        debtPayments: data.debtPayments || [],
-                        expenses: (data.expenses && data.expenses.length > 0) ? data.expenses : state.expenses,
-                        people: (data.people && data.people.length > 0) ? data.people : state.people,
-                        goal: data.goal || state.goal,
-                        currentMonth: data.currentMonth || state.currentMonth
-                    };
+                    // Merge data carefully so we don't lose local defaults if Drive file is newly created
+                    state.tasks = data.tasks || [];
+                    state.capitalSources = data.capitalSources || [];
+                    state.borrowers = data.borrowers || [];
+                    state.loans = data.loans || [];
+                    state.loanPayments = data.loanPayments || [];
+                    state.debts = data.debts || [];
+                    state.debtPayments = data.debtPayments || [];
+                    if (data.expenses && data.expenses.length > 0) state.expenses = data.expenses;
+                    if (data.people && data.people.length > 0) state.people = data.people;
+                    if (data.goal) state.goal = data.goal;
+                    if (data.currentMonth) state.currentMonth = data.currentMonth;
 
-                    const currentRelevant = {
-                        tasks: state.tasks, capitalSources: state.capitalSources, borrowers: state.borrowers,
-                        loans: state.loans, loanPayments: state.loanPayments, debts: state.debts,
-                        debtPayments: state.debtPayments, expenses: state.expenses, people: state.people,
-                        goal: state.goal, currentMonth: state.currentMonth
-                    };
+                    localStorage.setItem('sistemaTareasData', JSON.stringify(state));
+                    const monthSelector = document.getElementById('monthSelector');
+                    if (monthSelector) monthSelector.value = state.currentMonth;
+                    const tasksGoal = document.getElementById('tasksGoal');
+                    if (tasksGoal) tasksGoal.value = state.goal;
 
-                    // Si lo que llegó de la nube es exactamente igual a lo que ya está en pantalla
-                    // (el caso normal: ya se había guardado desde este mismo dispositivo), no volvemos
-                    // a redibujar nada. Esto evita el "salto"/parpadeo que se sentía unos segundos
-                    // después de cargar cada página, cuando la respuesta lenta de Apps Script llegaba
-                    // y forzaba un re-render completo aunque los datos no hubieran cambiado.
-                    if (JSON.stringify(incoming) !== JSON.stringify(currentRelevant)) {
-                        Object.assign(state, incoming);
-                        localStorage.setItem('sistemaTareasData', JSON.stringify(state));
-                        const monthSelector = document.getElementById('monthSelector');
-                        if (monthSelector) monthSelector.value = state.currentMonth;
-                        const tasksGoal = document.getElementById('tasksGoal');
-                        if (tasksGoal) tasksGoal.value = state.goal;
-
-                        renderAll();
-                    }
+                    renderAll();
 
                     statusEl.className = 'sync-status sync-success';
                     statusEl.innerHTML = '<i data-lucide="cloud-check"></i> Drive Conectado';
