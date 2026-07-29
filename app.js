@@ -320,8 +320,24 @@ const renderCapital = () => {
 
     sortedSources.forEach(source => {
         const poolLoans = state.loans.filter(l => l.capitalSourceId === source.id);
-        const poolLent = poolLoans.reduce((s, l) => s + parseFloat(l.amount || 0), 0);
-        const poolAvailable = parseFloat(source.amount || 0) - poolLent;
+        const poolPaymentsAll = state.loanPayments.filter(p => p.capitalSourceId === source.id);
+
+        // "Disponible" = lo que puedes volver a prestar de este capital ahora mismo: el monto
+        // original menos lo que sigue prestado sin cobrar (los abonos SÍ liberan espacio de nuevo).
+        const loanedByBorrowerInPool = {};
+        poolLoans.forEach(l => {
+            loanedByBorrowerInPool[l.borrowerId] = (loanedByBorrowerInPool[l.borrowerId] || 0) + parseFloat(l.amount || 0);
+        });
+        const paidByBorrowerInPool = {};
+        poolPaymentsAll.forEach(p => {
+            paidByBorrowerInPool[p.borrowerId] = (paidByBorrowerInPool[p.borrowerId] || 0) + parseFloat(p.amount || 0);
+        });
+        const poolOutstanding = Object.keys(loanedByBorrowerInPool).reduce((sum, borrowerId) => {
+            const loaned = loanedByBorrowerInPool[borrowerId];
+            const paid = paidByBorrowerInPool[borrowerId] || 0;
+            return sum + Math.max(0, loaned - paid);
+        }, 0);
+        const poolAvailable = parseFloat(source.amount || 0) - poolOutstanding;
         const isPoolExpanded = expandedPools.has(source.id);
 
         const poolTr = document.createElement('tr');
