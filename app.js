@@ -5,6 +5,12 @@ const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxLhRtrNcd4xRwIqf64
 // --- Estado Local ---
 let state = {
     tasks: [],
+    capitalSources: [],
+    borrowers: [],
+    loans: [],
+    loanPayments: [],
+    debts: [],
+    debtPayments: [],
     expenses: [
         { id: 1, type: "RECARGA MENSUAL", amount: 50.00, process: 3000.00, status: "Pendiente" },
         { id: 2, type: "GASOLINA", amount: 300.00, process: 1000.00, status: "Pendiente" },
@@ -26,6 +32,10 @@ let editingTaskId = null; // Para editar tareas
 
 // --- Runtime UI State ---
 let dismissedAlerts = new Set();
+let expandedDebtors = new Set();
+let expandedPools = new Set();
+let expandedPoolBorrowers = new Set(); // claves: `${capitalSourceId}:${borrowerId}`
+let showArchivedBorrowers = false;
 let filterState = {
     sortCol: 'nextDate',
     sortDir: 'asc',
@@ -46,6 +56,12 @@ const init = async () => {
             const parsed = JSON.parse(savedData);
             // Hacer un merge seguro para no perder propiedades nuevas si el localstorage es viejo
             state.tasks = parsed.tasks || [];
+            state.capitalSources = parsed.capitalSources || [];
+            state.borrowers = parsed.borrowers || [];
+            state.loans = parsed.loans || [];
+            state.loanPayments = parsed.loanPayments || [];
+            state.debts = parsed.debts || [];
+            state.debtPayments = parsed.debtPayments || [];
             state.expenses = parsed.expenses || state.expenses;
             state.people = parsed.people || state.people;
             state.goal = parsed.goal || state.goal;
@@ -66,12 +82,19 @@ const init = async () => {
         const tasksGoal = document.getElementById('tasksGoal');
         if (tasksGoal) tasksGoal.value = state.goal;
 
+        // Fechas por defecto (hoy) en los nuevos formularios de finanzas personales
+        const todayStr = new Date().toISOString().split('T')[0];
+        ['capDate', 'borrowerInitialDate', 'debtDate'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = todayStr;
+        });
+
         // Renderizar
         renderAll();
 
         // Event Listeners principales
         setupEventListeners();
-        setupPeopleFilters();
+        if (document.getElementById('filterMenu')) setupPeopleFilters();
     } catch (err) {
         console.error("Error fatal en el renderizado inicial:", err);
     }
@@ -178,6 +201,12 @@ const loadFromCloud = () => {
                 if (data && data.tasks) {
                     // Merge data carefully so we don't lose local defaults if Drive file is newly created
                     state.tasks = data.tasks || [];
+                    state.capitalSources = data.capitalSources || [];
+                    state.borrowers = data.borrowers || [];
+                    state.loans = data.loans || [];
+                    state.loanPayments = data.loanPayments || [];
+                    state.debts = data.debts || [];
+                    state.debtPayments = data.debtPayments || [];
                     if (data.expenses && data.expenses.length > 0) state.expenses = data.expenses;
                     if (data.people && data.people.length > 0) state.people = data.people;
                     if (data.goal) state.goal = data.goal;
@@ -228,15 +257,384 @@ const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(amount) || 0);
 };
 
+// Formatea una fecha "solo fecha" (YYYY-MM-DD, ej. de un <input type="date">) sin el corrimiento de
+// un día que provoca `new Date('YYYY-MM-DD')` al interpretarla como UTC y mostrarla en horario local.
+const formatDateOnly = (dateStr) => {
+    if (!dateStr) return '';
+    const [y, m, d] = dateStr.split('-');
+    return new Date(y, m - 1, d).toLocaleDateString('es-ES');
+};
+
 // --- Renderizadores ---
+// Cada página (Sistema de Tareas / Control Financiero) sólo tiene parte de estos elementos en el DOM,
+// por eso cada render* function hace su propio guard temprano si su contenedor no existe.
 const renderAll = () => {
     renderExpenses();
     renderPeople();
+    renderCapital();
+    renderDebts();
     calculateSummary();
+};
+
+// --- Gestión de Capital y Préstamos ---
+// Cada capital (fuente) es una "bolsa" de dinero. Los préstamos y abonos a deudores se anidan
+// dentro de la bolsa de la que salieron, todo en una sola tabla expandible.
+const renderCapital = () => {
+    const tbody = document.getElementById('capitalPoolsBody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // Datalist global de nombres de deudores existentes (para autocompletar al prestar)
+    const datalist = document.getElementById('borrowerNamesList');
+    if (datalist) {
+        const uniqueNames = [...new Set(state.borrowers.map(b => b.name))].filter(n => n && n.trim() !== '');
+        uniqueNames.sort((a, b) => a.localeCompare(b));
+        datalist.innerHTML = uniqueNames.map(n => `<option value="${n}">`).join('');
+    }
+
+    // --- Métricas globales ---
+    let totalCapital = 0;
+    state.capitalSources.forEach(c => totalCapital += parseFloat(c.amount || 0));
+
+    let totalOutstanding = 0;
+    let totalRecovered = 0;
+    state.borrowers.forEach(b => {
+        const loanedB = state.loans.filter(l => l.borrowerId === b.id).reduce((s, l) => s + parseFloat(l.amount || 0), 0);
+        const paidB = state.loanPayments.filter(p => p.borrowerId === b.id).reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+        totalOutstanding += Math.max(0, loanedB - paidB);
+        totalRecovered += paidB;
+    });
+    const capitalAvailable = totalCapital - totalOutstanding;
+
+    const elTotal = document.getElementById('metricCapitalTotal');
+    if (elTotal) elTotal.textContent = formatCurrency(totalCapital);
+    const elAvailable = document.getElementById('metricCapitalAvailable');
+    if (elAvailable) elAvailable.textContent = formatCurrency(capitalAvailable);
+    const elStreet = document.getElementById('metricLoanedStreet');
+    if (elStreet) elStreet.textContent = formatCurrency(totalOutstanding);
+    const elRecovered = document.getElementById('metricRecovered');
+    if (elRecovered) elRecovered.textContent = formatCurrency(totalRecovered);
+
+    if (state.capitalSources.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">Aún no has registrado ningún capital. Usa el formulario de arriba para empezar.</td></tr>';
+        lucide.createIcons();
+        return;
+    }
+
+    const sortedSources = [...state.capitalSources].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    sortedSources.forEach(source => {
+        const poolLoans = state.loans.filter(l => l.capitalSourceId === source.id);
+        const poolLent = poolLoans.reduce((s, l) => s + parseFloat(l.amount || 0), 0);
+        const poolAvailable = parseFloat(source.amount || 0) - poolLent;
+        const isPoolExpanded = expandedPools.has(source.id);
+
+        const poolTr = document.createElement('tr');
+        poolTr.style.cursor = 'pointer';
+        poolTr.style.background = 'rgba(59, 130, 246, 0.07)';
+        poolTr.innerHTML = `
+            <td style="font-weight: 600;">
+                <i data-lucide="${isPoolExpanded ? 'chevron-down' : 'chevron-right'}" style="width: 15px; height: 15px; vertical-align: middle; margin-right: 4px;"></i>
+                ${source.source}
+                ${source.description ? `<div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400; margin-left: 19px;">${source.description}</div>` : ''}
+            </td>
+            <td class="text-right">${formatCurrency(parseFloat(source.amount || 0))}</td>
+            <td class="text-right ${poolAvailable < 0 ? 'text-danger' : 'text-success'}">${formatCurrency(poolAvailable)} <span style="font-size: 0.7rem; color: var(--text-muted);">disp.</span></td>
+            <td class="text-center"><button class="btn btn-delete btn-sm delete-capital-btn" data-id="${source.id}" title="Eliminar este capital"><i data-lucide="trash-2"></i></button></td>
+        `;
+        poolTr.addEventListener('click', (e) => {
+            if (e.target.closest('button')) return;
+            if (expandedPools.has(source.id)) expandedPools.delete(source.id);
+            else expandedPools.add(source.id);
+            renderCapital();
+        });
+        tbody.appendChild(poolTr);
+
+        if (!isPoolExpanded) return;
+
+        // Mini-formulario: prestar dinero de este capital a un deudor
+        const formTr = document.createElement('tr');
+        formTr.innerHTML = `
+            <td colspan="4" style="padding: 0.75rem 1rem 0.75rem 1.75rem; background: rgba(59,130,246,0.04);">
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                    <input type="text" class="new-pool-loan-name" list="borrowerNamesList" autocomplete="off" placeholder="Nombre del deudor" style="flex: 1; min-width: 120px; background: rgba(15,23,42,0.6); border: 1px solid var(--glass-border); border-radius: 6px; padding: 0.4rem; color: var(--text-main);" data-pool="${source.id}">
+                    <input type="number" step="0.01" class="new-pool-loan-amount" placeholder="Monto" style="width: 100px; background: rgba(15,23,42,0.6); border: 1px solid var(--glass-border); border-radius: 6px; padding: 0.4rem; color: var(--text-main);" data-pool="${source.id}">
+                    <input type="date" class="new-pool-loan-date" value="${todayStr}" style="background: rgba(15,23,42,0.6); border: 1px solid var(--glass-border); border-radius: 6px; padding: 0.4rem; color: var(--text-main);" data-pool="${source.id}">
+                    <input type="text" class="new-pool-loan-desc" placeholder="Descripción (opcional)" style="flex: 1; min-width: 100px; background: rgba(15,23,42,0.6); border: 1px solid var(--glass-border); border-radius: 6px; padding: 0.4rem; color: var(--text-main);" data-pool="${source.id}">
+                    <button class="btn btn-primary btn-sm new-pool-loan-btn" data-pool="${source.id}"><i data-lucide="plus"></i> Prestar</button>
+                </div>
+            </td>
+        `;
+        tbody.appendChild(formTr);
+
+        // Agrupar los préstamos y abonos de este capital por deudor
+        const byBorrower = {};
+        poolLoans.forEach(l => {
+            if (!byBorrower[l.borrowerId]) byBorrower[l.borrowerId] = true;
+        });
+        const poolPayments = state.loanPayments.filter(p => p.capitalSourceId === source.id);
+        poolPayments.forEach(p => {
+            if (!byBorrower[p.borrowerId]) byBorrower[p.borrowerId] = true;
+        });
+
+        const borrowerRows = Object.keys(byBorrower).map(idStr => {
+            const bId = parseInt(idStr);
+            const b = state.borrowers.find(x => x.id === bId);
+            if (!b) return null;
+            if (b.archived && !showArchivedBorrowers) return null;
+            const loans = poolLoans.filter(l => l.borrowerId === bId);
+            const payments = poolPayments.filter(p => p.borrowerId === bId);
+            const totalLoaned = loans.reduce((s, l) => s + parseFloat(l.amount || 0), 0);
+            const totalPaid = payments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+            const pending = totalLoaned - totalPaid;
+            return { b, loans, payments, totalLoaned, pending };
+        }).filter(Boolean);
+
+        borrowerRows.sort((a, b) => {
+            if (a.b.archived !== b.b.archived) return a.b.archived ? 1 : -1;
+            const aPaid = a.pending <= 0.004;
+            const bPaid = b.pending <= 0.004;
+            if (aPaid !== bPaid) return aPaid ? 1 : -1;
+            return b.pending - a.pending;
+        });
+
+        if (borrowerRows.length === 0) {
+            const emptyTr = document.createElement('tr');
+            emptyTr.innerHTML = `<td colspan="4" style="padding-left: 2.5rem; font-size: 0.8rem;" class="text-muted">Aún no se ha prestado dinero de este capital.</td>`;
+            tbody.appendChild(emptyTr);
+        }
+
+        borrowerRows.forEach(({ b, loans, payments, totalLoaned, pending }) => {
+            const isPaid = pending <= 0.004;
+            const subKey = `${source.id}:${b.id}`;
+            const isSubExpanded = expandedPoolBorrowers.has(subKey);
+
+            const bTr = document.createElement('tr');
+            bTr.style.cursor = 'pointer';
+            if (b.archived) bTr.style.opacity = '0.55';
+            if (isPaid && !b.archived) bTr.classList.add('row-success');
+            bTr.innerHTML = `
+                <td style="padding-left: 2rem;">
+                    <i data-lucide="${isSubExpanded ? 'chevron-down' : 'chevron-right'}" style="width: 13px; height: 13px; vertical-align: middle; margin-right: 4px;"></i>
+                    ${b.name} ${b.archived ? '<span class="status-badge status-pending" style="margin-left: 6px;">ARCHIVADO</span>' : ''}
+                </td>
+                <td class="text-right">${formatCurrency(totalLoaned)}</td>
+                <td class="text-right ${isPaid ? 'text-success' : 'text-danger'}" style="font-weight: 600;">
+                    ${isPaid ? '<i data-lucide="check-circle" style="width:13px; height:13px; vertical-align: middle;"></i> SALDADO' : formatCurrency(pending)}
+                </td>
+                <td class="text-center">
+                    <div style="display: flex; gap: 0.25rem; align-items: center; justify-content: flex-end; flex-wrap: wrap;">
+                        <input type="number" step="0.01" class="table-input pool-borrower-abono-input" placeholder="Abonar" style="width: 65px; text-align: right;" data-pool="${source.id}" data-borrower="${b.id}">
+                        <button class="btn btn-outline btn-sm pool-borrower-abonar-btn" data-pool="${source.id}" data-borrower="${b.id}" style="padding: 0.3rem; border-color: var(--success); color: var(--success);" title="Registrar Abono"><i data-lucide="hand-coins"></i></button>
+                        <button class="btn btn-outline btn-sm borrower-archive-btn" data-id="${b.id}" style="padding: 0.3rem;" title="${b.archived ? 'Reactivar' : 'Archivar'}"><i data-lucide="${b.archived ? 'archive-restore' : 'archive'}"></i></button>
+                        <button class="btn btn-delete btn-sm borrower-delete-btn" data-id="${b.id}" title="Eliminar Deudor"><i data-lucide="trash-2"></i></button>
+                    </div>
+                </td>
+            `;
+            bTr.addEventListener('click', (e) => {
+                if (e.target.closest('input, button')) return;
+                if (expandedPoolBorrowers.has(subKey)) expandedPoolBorrowers.delete(subKey);
+                else expandedPoolBorrowers.add(subKey);
+                renderCapital();
+            });
+            tbody.appendChild(bTr);
+
+            if (isSubExpanded) {
+                const sortedLoans = [...loans].sort((a, b2) => new Date(b2.date) - new Date(a.date));
+                sortedLoans.forEach(l => {
+                    const dateStr = formatDateOnly(l.date);
+                    const lTr = document.createElement('tr');
+                    lTr.style.background = 'rgba(0,0,0,0.15)';
+                    lTr.innerHTML = `
+                        <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--text-muted);">${dateStr} - ${l.description || 'Préstamo'}</td>
+                        <td class="text-right" style="font-size: 0.78rem;">${formatCurrency(parseFloat(l.amount || 0))}</td>
+                        <td class="text-center"><button class="btn btn-delete btn-sm delete-loan-btn" data-id="${l.id}"><i data-lucide="trash-2"></i></button></td>
+                    `;
+                    tbody.appendChild(lTr);
+                });
+
+                const sortedPayments = [...payments].sort((a, b2) => new Date(b2.date) - new Date(a.date));
+                sortedPayments.forEach(p => {
+                    const dateStr = p.date ? new Date(p.date).toLocaleDateString('es-ES') : '';
+                    const pTr = document.createElement('tr');
+                    pTr.style.background = 'rgba(34, 197, 94, 0.08)';
+                    pTr.innerHTML = `
+                        <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--success);"><i data-lucide="check" style="width: 11px; height: 11px; vertical-align: middle;"></i> ${dateStr} - Abono</td>
+                        <td class="text-right text-success" style="font-size: 0.78rem;">${formatCurrency(parseFloat(p.amount || 0))}</td>
+                        <td class="text-center"><button class="btn btn-delete btn-sm delete-loanpayment-btn" data-id="${p.id}"><i data-lucide="trash-2"></i></button></td>
+                    `;
+                    tbody.appendChild(pTr);
+                });
+            }
+        });
+    });
+
+    lucide.createIcons();
+};
+
+const renderDebts = () => {
+    const tbody = document.getElementById('debtsSummaryBody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    const normalizeString = (str) => {
+        if (!str) return '';
+        return str.toString().normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+    };
+
+    // Poblar datalist de nombres de deudores (autocompletar)
+    const datalist = document.getElementById('debtNamesList');
+    if (datalist) {
+        const uniqueNames = [...new Set(state.debts.map(d => d.name))].filter(n => n && n.trim() !== '');
+        uniqueNames.sort((a, b) => a.localeCompare(b));
+        datalist.innerHTML = uniqueNames.map(n => `<option value="${n}">`).join('');
+    }
+
+    // 1. Agrupar los cargos (lo que se debe) por persona
+    const groups = {};
+    state.debts.forEach(d => {
+        const key = normalizeString(d.name);
+        if (!key) return;
+        if (!groups[key]) groups[key] = { nameDisplay: d.name, totalCharged: 0, totalPaid: 0, items: [], payments: [] };
+        groups[key].totalCharged += parseFloat(d.amount || 0);
+        groups[key].items.push(d);
+        if (d.name.length > groups[key].nameDisplay.length) groups[key].nameDisplay = d.name;
+    });
+
+    // 2. Aplicar los abonos registrados a cada persona
+    state.debtPayments.forEach(p => {
+        const key = normalizeString(p.name);
+        if (!key) return;
+        if (!groups[key]) groups[key] = { nameDisplay: p.name, totalCharged: 0, totalPaid: 0, items: [], payments: [] };
+        groups[key].totalPaid += parseFloat(p.amount || 0);
+        groups[key].payments.push(p);
+    });
+
+    // 3. Calcular pendiente y ordenar: los que aún deben primero (mayor a menor), los pagados al final
+    const list = Object.entries(groups).map(([key, g]) => ({ key, ...g, pending: g.totalCharged - g.totalPaid }));
+    list.sort((a, b) => {
+        const aPaid = a.pending <= 0.004;
+        const bPaid = b.pending <= 0.004;
+        if (aPaid !== bPaid) return aPaid ? 1 : -1;
+        return b.pending - a.pending;
+    });
+
+    const totalPending = list.reduce((sum, g) => sum + Math.max(0, g.pending), 0);
+    const totalPaidAll = list.reduce((sum, g) => sum + g.totalPaid, 0);
+    const elDebtsPending = document.getElementById('metricDebtsTotalPending');
+    if (elDebtsPending) elDebtsPending.textContent = formatCurrency(totalPending);
+    const elDebtsPaid = document.getElementById('metricDebtsTotalPaid');
+    if (elDebtsPaid) elDebtsPaid.textContent = formatCurrency(totalPaidAll);
+
+    if (list.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">No hay deudas registradas.</td></tr>';
+        lucide.createIcons();
+        return;
+    }
+
+    list.forEach(g => {
+        const isPaid = g.pending <= 0.004;
+        const isExpanded = expandedDebtors.has(g.key);
+        const tr = document.createElement('tr');
+        tr.style.cursor = 'pointer';
+        if (isPaid) tr.classList.add('row-success');
+        tr.innerHTML = `
+            <td style="font-weight: 500;">
+                <i data-lucide="${isExpanded ? 'chevron-down' : 'chevron-right'}" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"></i>${g.nameDisplay}
+            </td>
+            <td class="text-right ${isPaid ? 'text-success' : 'text-danger'}" style="font-weight: 600;">
+                ${isPaid ? '<i data-lucide="check-circle" style="width:14px; height:14px; vertical-align: middle;"></i> PAGADO' : formatCurrency(g.pending)}
+            </td>
+            <td class="text-center">
+                <div style="display: flex; gap: 0.25rem; align-items: center; justify-content: flex-end;">
+                    <input type="number" step="0.01" class="table-input debt-abono-input" placeholder="Abonar" style="width: 75px; text-align: right;" data-name="${g.nameDisplay}">
+                    <button class="btn btn-outline btn-sm debt-abonar-btn" data-name="${g.nameDisplay}" style="padding: 0.35rem; border-color: var(--success); color: var(--success);" title="Registrar Abono"><i data-lucide="hand-coins"></i></button>
+                    <button class="btn btn-outline btn-sm debt-copy-btn" style="padding: 0.35rem;" title="Copiar resumen de esta persona"><i data-lucide="copy"></i></button>
+                </div>
+            </td>
+        `;
+        tr.addEventListener('click', (e) => {
+            if (e.target.closest('.debt-abono-input') || e.target.closest('.debt-abonar-btn') || e.target.closest('.debt-copy-btn')) return;
+            if (expandedDebtors.has(g.key)) expandedDebtors.delete(g.key);
+            else expandedDebtors.add(g.key);
+            renderDebts();
+        });
+
+        const copyBtn = tr.querySelector('.debt-copy-btn');
+        copyBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const sortedForCopy = [...g.items].sort((a, b) => new Date(a.date) - new Date(b.date));
+            const lines = [g.nameDisplay, ''];
+            sortedForCopy.forEach(item => {
+                const dateStr = formatDateOnly(item.date);
+                const desc = item.description || 'Cargo';
+                lines.push(`- ${desc}${dateStr ? ' (' + dateStr + ')' : ''}: ${formatCurrency(parseFloat(item.amount || 0))}`);
+            });
+            lines.push('');
+            lines.push(`Total: ${formatCurrency(g.totalCharged)}`);
+            if (g.totalPaid > 0) {
+                lines.push(`Abonado: ${formatCurrency(g.totalPaid)}`);
+                lines.push(`Pendiente: ${formatCurrency(g.pending)}`);
+            }
+            const text = lines.join('\n');
+
+            const showCopied = () => {
+                copyBtn.innerHTML = '<i data-lucide="check"></i>';
+                lucide.createIcons();
+                setTimeout(() => {
+                    copyBtn.innerHTML = '<i data-lucide="copy"></i>';
+                    lucide.createIcons();
+                }, 1500);
+            };
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(showCopied).catch(() => {
+                    alert('No se pudo copiar automáticamente. Copia manualmente:\n\n' + text);
+                });
+            } else {
+                alert('No se pudo copiar automáticamente. Copia manualmente:\n\n' + text);
+            }
+        });
+
+        tbody.appendChild(tr);
+
+        if (isExpanded) {
+            const sortedItems = [...g.items].sort((a, b) => new Date(b.date) - new Date(a.date));
+            sortedItems.forEach(item => {
+                const dateStr = formatDateOnly(item.date);
+                const detailTr = document.createElement('tr');
+                detailTr.style.background = 'rgba(0,0,0,0.15)';
+                detailTr.innerHTML = `
+                    <td style="padding-left: 2rem; font-size: 0.8rem; color: var(--text-muted);">${dateStr} - ${item.description || 'Sin descripción'}</td>
+                    <td class="text-right text-danger" style="font-size: 0.8rem;">${formatCurrency(parseFloat(item.amount || 0))}</td>
+                    <td class="text-center"><button class="btn btn-delete btn-sm delete-debt-btn" data-id="${item.id}"><i data-lucide="trash-2"></i></button></td>
+                `;
+                tbody.appendChild(detailTr);
+            });
+
+            const sortedPayments = [...g.payments].sort((a, b) => new Date(b.date) - new Date(a.date));
+            sortedPayments.forEach(p => {
+                const dateStr = p.date ? new Date(p.date).toLocaleDateString('es-ES') : '';
+                const payTr = document.createElement('tr');
+                payTr.style.background = 'rgba(34, 197, 94, 0.08)';
+                payTr.innerHTML = `
+                    <td style="padding-left: 2rem; font-size: 0.8rem; color: var(--success);"><i data-lucide="check" style="width: 12px; height: 12px; vertical-align: middle;"></i> ${dateStr} - Abono</td>
+                    <td class="text-right text-success" style="font-size: 0.8rem;">${formatCurrency(parseFloat(p.amount || 0))}</td>
+                    <td class="text-center"><button class="btn btn-delete btn-sm delete-debtpayment-btn" data-id="${p.id}"><i data-lucide="trash-2"></i></button></td>
+                `;
+                tbody.appendChild(payTr);
+            });
+        }
+    });
+
+    lucide.createIcons();
 };
 
 const renderExpenses = () => {
     const tbody = document.querySelector('#expensesTable tbody');
+    if (!tbody) return;
     tbody.innerHTML = '';
 
     state.expenses.forEach((exp, index) => {
@@ -264,6 +662,7 @@ const renderExpenses = () => {
 
 const renderPeople = () => {
     const tbody = document.querySelector('#peopleTable tbody');
+    if (!tbody) return;
     tbody.innerHTML = '';
 
     const today = new Date();
@@ -329,7 +728,7 @@ const renderPeople = () => {
             }
         }
 
-        const dateStr = person.nextDate ? new Date(person.nextDate).toLocaleDateString('es-ES') : '';
+        const dateStr = formatDateOnly(person.nextDate);
 
         const tr = document.createElement('tr');
         if (trClass) tr.className = trClass;
@@ -430,6 +829,9 @@ const autoAllocateExpenses = (totalIncomeAvailable) => {
 };
 
 const calculateSummary = () => {
+    // Este resumen sólo existe en la página "Sistema de Tareas"; en "Control Financiero" no hay nada que calcular aquí.
+    if (!document.getElementById('totalBilledAmount')) return;
+
     const currentMonthNum = parseInt(state.currentMonth);
     const currentYearNum = new Date().getFullYear();
 
@@ -730,7 +1132,7 @@ const generatePDFReceipt = (clientName, matDisplay, totalGen, totalAbonado, tota
     const sortedTasks = [...state.tasks].sort((a, b) => new Date(b.date) - new Date(a.date));
     sortedTasks.forEach(t => {
         if (normalizeString(t.name).includes(searchTarget)) {
-            const dStr = t.date ? new Date(t.date).toLocaleDateString('es-ES') : '';
+            const dStr = formatDateOnly(t.date);
             rows.push([
                 dStr,
                 t.assignment,
@@ -809,7 +1211,13 @@ const generatePDFReceipt = (clientName, matDisplay, totalGen, totalAbonado, tota
     doc.save(`recibo_${safeName}_${new Date().getTime()}.pdf`);
 };
 
+// setupEventListeners despacha según la página actual: "Sistema de Tareas" o "Control Financiero".
 const setupEventListeners = () => {
+    if (document.getElementById('taskForm')) setupTaskEventListeners();
+    if (document.getElementById('capitalForm')) setupFinanceEventListeners();
+};
+
+const setupTaskEventListeners = () => {
     // 1. Registro de Tareas
     document.getElementById('taskForm').addEventListener('submit', (e) => {
         e.preventDefault();
@@ -939,7 +1347,7 @@ const setupEventListeners = () => {
                 foundTasks = true;
 
                 // Formatear fecha
-                const dateStr = t.date ? new Date(t.date).toLocaleDateString('es-ES') : '';
+                const dateStr = formatDateOnly(t.date);
 
                 htmlRows += `
                     <tr>
@@ -1168,6 +1576,225 @@ const setupEventListeners = () => {
             state.expenses = state.expenses.filter(x => x.id !== id);
             saveData();
             renderExpenses();
+        }
+    });
+};
+
+const setupFinanceEventListeners = () => {
+    // 5. Gestión de Capital y Préstamos (todo unificado: capital -> deudores -> abonos)
+    const normalizeName = (str) => str ? str.toString().normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase() : '';
+
+    const findOrCreateBorrower = (name) => {
+        const norm = normalizeName(name);
+        const existing = state.borrowers.find(b => normalizeName(b.name) === norm);
+        if (existing) return existing;
+        const newBorrower = { id: Date.now() + Math.floor(Math.random() * 1000), name: name.trim(), archived: false };
+        state.borrowers.push(newBorrower);
+        return newBorrower;
+    };
+
+    document.getElementById('capitalForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const source = document.getElementById('capSource').value;
+        const description = document.getElementById('capDesc').value;
+        const amount = parseFloat(document.getElementById('capAmount').value) || 0;
+        const date = document.getElementById('capDate').value;
+
+        state.capitalSources.push({ id: Date.now(), source, description, amount, date });
+        saveData();
+        renderCapital();
+
+        document.getElementById('capSource').value = '';
+        document.getElementById('capDesc').value = '';
+        document.getElementById('capAmount').value = '';
+    });
+
+    const archivedToggle = document.getElementById('showArchivedToggle');
+    if (archivedToggle) {
+        archivedToggle.addEventListener('change', (e) => {
+            showArchivedBorrowers = e.target.checked;
+            renderCapital();
+        });
+    }
+
+    document.getElementById('capitalPoolsBody').addEventListener('click', (e) => {
+        const delCapBtn = e.target.closest('.delete-capital-btn');
+        if (delCapBtn) {
+            e.stopPropagation();
+            const id = parseInt(delCapBtn.dataset.id);
+            if (confirm('¿Eliminar este capital junto con todos los préstamos y abonos hechos desde él? Esta acción no se puede deshacer.')) {
+                state.capitalSources = state.capitalSources.filter(c => c.id !== id);
+                state.loans = state.loans.filter(l => l.capitalSourceId !== id);
+                state.loanPayments = state.loanPayments.filter(p => p.capitalSourceId !== id);
+                expandedPools.delete(id);
+                saveData();
+                renderCapital();
+            }
+            return;
+        }
+
+        const newLoanBtn = e.target.closest('.new-pool-loan-btn');
+        if (newLoanBtn) {
+            e.stopPropagation();
+            const poolId = parseInt(newLoanBtn.dataset.pool);
+            const cell = newLoanBtn.closest('td');
+            const nameInput = cell.querySelector('.new-pool-loan-name');
+            const amountInput = cell.querySelector('.new-pool-loan-amount');
+            const dateInput = cell.querySelector('.new-pool-loan-date');
+            const descInput = cell.querySelector('.new-pool-loan-desc');
+
+            const name = nameInput.value.trim();
+            const amount = parseFloat(amountInput.value);
+
+            if (!name) { alert('Ingresa el nombre del deudor.'); return; }
+            if (isNaN(amount) || amount <= 0) { alert('Ingresa un monto válido para el préstamo.'); return; }
+
+            const borrower = findOrCreateBorrower(name);
+            state.loans.push({ id: Date.now(), capitalSourceId: poolId, borrowerId: borrower.id, amount, date: dateInput.value, description: descInput.value || 'Préstamo' });
+            saveData();
+            renderCapital();
+            return;
+        }
+
+        const abonarBtn = e.target.closest('.pool-borrower-abonar-btn');
+        if (abonarBtn) {
+            e.stopPropagation();
+            const poolId = parseInt(abonarBtn.dataset.pool);
+            const borrowerId = parseInt(abonarBtn.dataset.borrower);
+            const input = abonarBtn.closest('td').querySelector('.pool-borrower-abono-input');
+            const amount = parseFloat(input.value);
+            if (isNaN(amount) || amount <= 0) {
+                alert('Ingresa un monto válido para el abono.');
+                return;
+            }
+            state.loanPayments.push({ id: Date.now(), capitalSourceId: poolId, borrowerId, amount, date: new Date().toISOString() });
+            saveData();
+            renderCapital();
+            return;
+        }
+
+        const archiveBtn = e.target.closest('.borrower-archive-btn');
+        if (archiveBtn) {
+            e.stopPropagation();
+            const id = parseInt(archiveBtn.dataset.id);
+            const b = state.borrowers.find(x => x.id === id);
+            if (b) {
+                b.archived = !b.archived;
+                saveData();
+                renderCapital();
+            }
+            return;
+        }
+
+        const deleteBorrowerBtn = e.target.closest('.borrower-delete-btn');
+        if (deleteBorrowerBtn) {
+            e.stopPropagation();
+            const id = parseInt(deleteBorrowerBtn.dataset.id);
+            if (confirm('¿Eliminar este deudor y todo su historial de préstamos y abonos (en todos los capitales)? Esta acción no se puede deshacer.')) {
+                state.borrowers = state.borrowers.filter(b => b.id !== id);
+                state.loans = state.loans.filter(l => l.borrowerId !== id);
+                state.loanPayments = state.loanPayments.filter(p => p.borrowerId !== id);
+                saveData();
+                renderCapital();
+            }
+            return;
+        }
+
+        const deleteLoanBtn = e.target.closest('.delete-loan-btn');
+        if (deleteLoanBtn) {
+            e.stopPropagation();
+            const id = parseInt(deleteLoanBtn.dataset.id);
+            state.loans = state.loans.filter(l => l.id !== id);
+            saveData();
+            renderCapital();
+            return;
+        }
+
+        const deletePaymentBtn = e.target.closest('.delete-loanpayment-btn');
+        if (deletePaymentBtn) {
+            e.stopPropagation();
+            const id = parseInt(deletePaymentBtn.dataset.id);
+            state.loanPayments = state.loanPayments.filter(p => p.id !== id);
+            saveData();
+            renderCapital();
+        }
+    });
+
+    document.getElementById('capitalPoolsBody').addEventListener('keypress', (e) => {
+        if (e.target.classList.contains('pool-borrower-abono-input') && e.key === 'Enter') {
+            e.preventDefault();
+            const btn = e.target.closest('td').querySelector('.pool-borrower-abonar-btn');
+            if (btn) btn.click();
+        }
+        if (e.target.classList.contains('new-pool-loan-amount') && e.key === 'Enter') {
+            e.preventDefault();
+            const btn = e.target.closest('td').querySelector('.new-pool-loan-btn');
+            if (btn) btn.click();
+        }
+    });
+
+    // 6. Quién Me Debe
+    document.getElementById('debtForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const name = document.getElementById('debtName').value;
+        const description = document.getElementById('debtDesc').value;
+        const amount = parseFloat(document.getElementById('debtAmount').value) || 0;
+        const date = document.getElementById('debtDate').value;
+
+        state.debts.push({ id: Date.now(), name, description, amount, date });
+        saveData();
+        renderDebts();
+
+        document.getElementById('debtName').value = '';
+        document.getElementById('debtDesc').value = '';
+        document.getElementById('debtAmount').value = '';
+    });
+
+    document.getElementById('debtsSummaryBody').addEventListener('click', (e) => {
+        const delBtn = e.target.closest('.delete-debt-btn');
+        if (delBtn) {
+            e.stopPropagation();
+            const id = parseInt(delBtn.dataset.id);
+            state.debts = state.debts.filter(d => d.id !== id);
+            saveData();
+            renderDebts();
+            return;
+        }
+
+        const delPayBtn = e.target.closest('.delete-debtpayment-btn');
+        if (delPayBtn) {
+            e.stopPropagation();
+            const id = parseInt(delPayBtn.dataset.id);
+            state.debtPayments = state.debtPayments.filter(p => p.id !== id);
+            saveData();
+            renderDebts();
+            return;
+        }
+
+        const abonarBtn = e.target.closest('.debt-abonar-btn');
+        if (abonarBtn) {
+            e.stopPropagation();
+            const name = abonarBtn.dataset.name;
+            const input = abonarBtn.closest('td').querySelector('.debt-abono-input');
+            const amount = parseFloat(input.value);
+
+            if (isNaN(amount) || amount <= 0) {
+                alert('Ingresa un monto válido para el abono.');
+                return;
+            }
+
+            state.debtPayments.push({ id: Date.now(), name, amount, date: new Date().toISOString() });
+            saveData();
+            renderDebts();
+        }
+    });
+
+    // Permitir presionar Enter en el campo de abono para registrarlo
+    document.getElementById('debtsSummaryBody').addEventListener('keypress', (e) => {
+        if (e.target.classList.contains('debt-abono-input') && e.key === 'Enter') {
+            e.preventDefault();
+            const btn = e.target.closest('td').querySelector('.debt-abonar-btn');
+            if (btn) btn.click();
         }
     });
 };

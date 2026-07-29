@@ -59,6 +59,42 @@ body {
     color: var(--primary);
 }
 
+/* Navegación entre páginas */
+.page-nav {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.page-nav a {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.page-nav a:hover {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.page-nav a.active {
+    color: var(--primary);
+    background: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+.page-nav a i {
+    width: 16px;
+    height: 16px;
+}
+
 .current-date {
     color: var(--text-muted);
     font-weight: 500;
@@ -389,6 +425,13 @@ tr.row-danger input.table-input {
 .status-pending { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
 .status-paid { background: rgba(34, 197, 94, 0.2); color: var(--success); }
 
+tr.row-success {
+    background: rgba(34, 197, 94, 0.08) !important;
+}
+tr.row-success:hover {
+    background: rgba(34, 197, 94, 0.14) !important;
+}
+
 .date-status-danger {
     background: rgba(239, 68, 68, 0.2);
     color: #fca5a5;
@@ -554,9 +597,43 @@ tr.row-danger input.table-input {
     animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; 
 }
 
+/* Personal Finance Section */
+.finance-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+}
+
+.finance-panel {
+    background: rgba(15, 23, 42, 0.3);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--border-radius);
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.finance-panel-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--primary);
+    border-bottom: 1px solid var(--glass-border);
+    padding-bottom: 0.75rem;
+}
+
 /* Responsiveness */
 @media (max-width: 1024px) {
     .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 1200px) {
+    .finance-grid {
         grid-template-columns: 1fr;
     }
 }

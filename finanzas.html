@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control Financiero - Sistema de Tareas</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="glass-container">
+        <!-- Header -->
+        <header class="dashboard-header animate-fade-in">
+            <h1><i data-lucide="landmark"></i> Control Financiero</h1>
+            <div style="display: flex; align-items: center; gap: 1.5rem;">
+                <nav class="page-nav">
+                    <a href="index.html"><i data-lucide="clipboard-list"></i> Sistema de Tareas</a>
+                    <a href="finanzas.html" class="active"><i data-lucide="landmark"></i> Control Financiero</a>
+                </nav>
+                <div id="syncStatus" class="sync-status"
+                    title="Pega tu WEB_APP_URL en app.js para conectar con Google Drive">
+                    <i data-lucide="cloud-off"></i> Sin conexión a Drive
+                </div>
+                <div class="current-date" id="currentDateDisplay"></div>
+            </div>
+        </header>
+
+        <main class="dashboard-grid">
+            <!-- Gestión de Capital y Préstamos (todo unificado: capital -> deudores -> abonos) -->
+            <section class="card glass-panel full-width-card animate-slide-up"
+                style="margin-top: 0; animation-delay: 0.05s;">
+                <h2 class="section-title"><i data-lucide="banknote"></i> Gestión de Capital y Préstamos</h2>
+
+                <div class="metrics-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 1.5rem;">
+                    <div class="metric-card success">
+                        <span class="metric-label">Capital Total Aportado</span>
+                        <span class="metric-value" id="metricCapitalTotal">$ 0.00</span>
+                    </div>
+                    <div class="metric-card">
+                        <span class="metric-label">Capital Disponible</span>
+                        <span class="metric-value" id="metricCapitalAvailable">$ 0.00</span>
+                    </div>
+                    <div class="metric-card warning">
+                        <span class="metric-label">Prestado en la Calle / Por Cobrar</span>
+                        <span class="metric-value" id="metricLoanedStreet">$ 0.00</span>
+                    </div>
+                    <div class="metric-card success">
+                        <span class="metric-label">Total Recuperado</span>
+                        <span class="metric-value" id="metricRecovered">$ 0.00</span>
+                    </div>
+                </div>
+
+                <form id="capitalForm" class="form-grid"
+                    style="grid-template-columns: 1.2fr 0.8fr 0.8fr 1.2fr auto; align-items: end; gap: 0.75rem;">
+                    <div class="input-group">
+                        <label for="capSource">Fuente / Persona</label>
+                        <input type="text" id="capSource" required placeholder="Ej. Préstamo de 120,000">
+                    </div>
+                    <div class="input-group">
+                        <label for="capAmount">Monto ($)</label>
+                        <input type="number" id="capAmount" step="0.01" required placeholder="0.00">
+                    </div>
+                    <div class="input-group">
+                        <label for="capDate">Fecha</label>
+                        <input type="date" id="capDate" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="capDesc">Descripción (opcional)</label>
+                        <input type="text" id="capDesc" placeholder="Ej. Capital para prestar">
+                    </div>
+                    <button type="submit" class="btn btn-primary"><i data-lucide="plus-circle"></i> REGISTRAR
+                        CAPITAL</button>
+                </form>
+
+                <p class="mt-4" style="font-size: 0.8rem; color: var(--text-muted);">
+                    <i data-lucide="info" style="width: 14px; height: 14px; vertical-align: middle;"></i>
+                    Haz clic en un capital para expandirlo y prestarle dinero a un deudor. Haz clic en un deudor para
+                    ver su historial. El campo "Abonar" descuenta únicamente el balance de esa persona, y se pone en
+                    verde cuando queda saldado.
+                </p>
+
+                <label
+                    style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted); cursor: pointer;">
+                    <input type="checkbox" id="showArchivedToggle"> Mostrar deudores archivados
+                </label>
+
+                <datalist id="borrowerNamesList"></datalist>
+
+                <div class="table-container mt-2">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>CAPITAL / DEUDOR</th>
+                                <th class="text-right">MONTO / PRESTADO</th>
+                                <th class="text-right">DISPONIBLE / PENDIENTE</th>
+                                <th>ACCIONES</th>
+                            </tr>
+                        </thead>
+                        <tbody id="capitalPoolsBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Quién Me Debe -->
+            <section class="card glass-panel full-width-card animate-slide-up" style="animation-delay: 0.3s;">
+                <h2 class="section-title"><i data-lucide="hand-coins"></i> Quién Me Debe</h2>
+
+                <div class="metrics-grid" style="grid-template-columns: repeat(2, 1fr); margin-bottom: 1.5rem;">
+                    <div class="metric-card danger">
+                        <span class="metric-label">Total que Me Deben (Pendiente)</span>
+                        <span class="metric-value" id="metricDebtsTotalPending">$ 0.00</span>
+                    </div>
+                    <div class="metric-card success">
+                        <span class="metric-label">Total Abonado</span>
+                        <span class="metric-value" id="metricDebtsTotalPaid">$ 0.00</span>
+                    </div>
+                </div>
+
+                <div class="finance-grid" style="grid-template-columns: 1fr 1.4fr;">
+                    <div>
+                        <form id="debtForm" class="form-grid">
+                            <div class="input-group">
+                                <label for="debtName">Nombre</label>
+                                <input type="text" id="debtName" list="debtNamesList" autocomplete="off" required
+                                    placeholder="Ej. Juan Pérez">
+                                <datalist id="debtNamesList"></datalist>
+                            </div>
+                            <div class="input-group">
+                                <label for="debtDesc">Descripción</label>
+                                <input type="text" id="debtDesc" placeholder="Ej. Préstamo almuerzo">
+                            </div>
+                            <div class="input-group">
+                                <label for="debtAmount">Monto ($)</label>
+                                <input type="number" id="debtAmount" step="0.01" required placeholder="0.00">
+                            </div>
+                            <div class="input-group">
+                                <label for="debtDate">Fecha</label>
+                                <input type="date" id="debtDate" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-block"><i data-lucide="plus-circle"></i>
+                                REGISTRAR</button>
+                        </form>
+                        <p class="mt-4" style="font-size: 0.8rem; color: var(--text-muted);">
+                            <i data-lucide="info" style="width: 14px; height: 14px; vertical-align: middle;"></i>
+                            Haz clic en una persona en la tabla para ver el detalle. Usa el campo "Abonar" para
+                            registrar un pago — la deuda se reduce y se muestra en verde cuando queda saldada.
+                        </p>
+                    </div>
+                    <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>PERSONA</th>
+                                    <th class="text-right">PENDIENTE</th>
+                                    <th>ABONAR</th>
+                                </tr>
+                            </thead>
+                            <tbody id="debtsSummaryBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+
+</html>
