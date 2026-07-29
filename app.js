@@ -299,23 +299,16 @@ const renderCapital = () => {
     state.capitalSources.forEach(c => totalCapital += parseFloat(c.amount || 0));
 
     let totalOutstanding = 0;
-    let totalRecovered = 0;
     state.borrowers.forEach(b => {
         const loanedB = state.loans.filter(l => l.borrowerId === b.id).reduce((s, l) => s + parseFloat(l.amount || 0), 0);
         const paidB = state.loanPayments.filter(p => p.borrowerId === b.id).reduce((s, p) => s + parseFloat(p.amount || 0), 0);
         totalOutstanding += Math.max(0, loanedB - paidB);
-        totalRecovered += paidB;
     });
-    const capitalAvailable = totalCapital - totalOutstanding;
 
     const elTotal = document.getElementById('metricCapitalTotal');
     if (elTotal) elTotal.textContent = formatCurrency(totalCapital);
-    const elAvailable = document.getElementById('metricCapitalAvailable');
-    if (elAvailable) elAvailable.textContent = formatCurrency(capitalAvailable);
     const elStreet = document.getElementById('metricLoanedStreet');
     if (elStreet) elStreet.textContent = formatCurrency(totalOutstanding);
-    const elRecovered = document.getElementById('metricRecovered');
-    if (elRecovered) elRecovered.textContent = formatCurrency(totalRecovered);
 
     if (state.capitalSources.length === 0) {
         tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">Aún no has registrado ningún capital. Usa el formulario de arriba para empezar.</td></tr>';
