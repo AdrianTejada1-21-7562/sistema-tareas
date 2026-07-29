@@ -419,6 +419,7 @@ const renderCapital = () => {
                 </td>
                 <td class="text-center">
                     <div style="display: flex; gap: 0.25rem; align-items: center; justify-content: flex-end; flex-wrap: wrap;">
+                        <input type="text" class="table-input pool-borrower-abono-desc" placeholder="Descripción (opcional)" style="width: 130px;" data-pool="${source.id}" data-borrower="${b.id}">
                         <input type="number" step="0.01" class="table-input pool-borrower-abono-input" placeholder="Abonar" style="width: 65px; text-align: right;" data-pool="${source.id}" data-borrower="${b.id}">
                         <button class="btn btn-outline btn-sm pool-borrower-abonar-btn" data-pool="${source.id}" data-borrower="${b.id}" style="padding: 0.3rem; border-color: var(--success); color: var(--success);" title="Registrar Abono"><i data-lucide="hand-coins"></i></button>
                         <button class="btn btn-outline btn-sm borrower-archive-btn" data-id="${b.id}" style="padding: 0.3rem;" title="${b.archived ? 'Reactivar' : 'Archivar'}"><i data-lucide="${b.archived ? 'archive-restore' : 'archive'}"></i></button>
@@ -451,10 +452,11 @@ const renderCapital = () => {
                 const sortedPayments = [...payments].sort((a, b2) => new Date(b2.date) - new Date(a.date));
                 sortedPayments.forEach(p => {
                     const dateStr = p.date ? new Date(p.date).toLocaleDateString('es-ES') : '';
+                    const label = p.description ? `Abono - ${p.description}` : 'Abono';
                     const pTr = document.createElement('tr');
                     pTr.style.background = 'rgba(34, 197, 94, 0.08)';
                     pTr.innerHTML = `
-                        <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--success);"><i data-lucide="check" style="width: 11px; height: 11px; vertical-align: middle;"></i> ${dateStr} - Abono</td>
+                        <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--success);"><i data-lucide="check" style="width: 11px; height: 11px; vertical-align: middle;"></i> ${dateStr} - ${label}</td>
                         <td class="text-right text-success" style="font-size: 0.78rem;">${formatCurrency(parseFloat(p.amount || 0))}</td>
                         <td class="text-center"><button class="btn btn-delete btn-sm delete-loanpayment-btn" data-id="${p.id}"><i data-lucide="trash-2"></i></button></td>
                     `;
@@ -1684,13 +1686,15 @@ const setupFinanceEventListeners = () => {
             e.stopPropagation();
             const poolId = parseInt(abonarBtn.dataset.pool);
             const borrowerId = parseInt(abonarBtn.dataset.borrower);
-            const input = abonarBtn.closest('td').querySelector('.pool-borrower-abono-input');
+            const cell = abonarBtn.closest('td');
+            const input = cell.querySelector('.pool-borrower-abono-input');
+            const descInput = cell.querySelector('.pool-borrower-abono-desc');
             const amount = parseFloat(input.value);
             if (isNaN(amount) || amount <= 0) {
                 alert('Ingresa un monto válido para el abono.');
                 return;
             }
-            state.loanPayments.push({ id: Date.now(), capitalSourceId: poolId, borrowerId, amount, date: new Date().toISOString() });
+            state.loanPayments.push({ id: Date.now(), capitalSourceId: poolId, borrowerId, amount, description: descInput.value.trim(), date: new Date().toISOString() });
             saveData();
             renderCapital();
             return;
@@ -1744,7 +1748,7 @@ const setupFinanceEventListeners = () => {
     });
 
     document.getElementById('capitalPoolsBody').addEventListener('keypress', (e) => {
-        if (e.target.classList.contains('pool-borrower-abono-input') && e.key === 'Enter') {
+        if ((e.target.classList.contains('pool-borrower-abono-input') || e.target.classList.contains('pool-borrower-abono-desc')) && e.key === 'Enter') {
             e.preventDefault();
             const btn = e.target.closest('td').querySelector('.pool-borrower-abonar-btn');
             if (btn) btn.click();
