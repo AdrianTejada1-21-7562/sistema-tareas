@@ -563,7 +563,15 @@ const renderDebts = () => {
             sortedForCopy.forEach(item => {
                 const dateStr = formatDateOnly(item.date);
                 const desc = item.description || 'Cargo';
-                lines.push(`- ${desc}${dateStr ? ' (' + dateStr + ')' : ''}: ${formatCurrency(parseFloat(item.amount || 0))}`);
+                const itemAmount = parseFloat(item.amount || 0);
+                const itemPaid = state.debtPayments
+                    .filter(p => p.debtId === item.id)
+                    .reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+                const itemIsPaid = (itemAmount - itemPaid) <= 0.004;
+                let line = `- ${desc}${dateStr ? ' (' + dateStr + ')' : ''}: ${formatCurrency(itemAmount)}`;
+                if (itemIsPaid) line += ' (PAGADO)';
+                else if (itemPaid > 0) line += ` (abonado ${formatCurrency(itemPaid)})`;
+                lines.push(line);
             });
             lines.push('');
             lines.push(`Total: ${formatCurrency(g.totalCharged)}`);
@@ -597,12 +605,32 @@ const renderDebts = () => {
             const sortedItems = [...g.items].sort((a, b) => new Date(b.date) - new Date(a.date));
             sortedItems.forEach(item => {
                 const dateStr = formatDateOnly(item.date);
+                const itemAmount = parseFloat(item.amount || 0);
+                const itemPaid = state.debtPayments
+                    .filter(p => p.debtId === item.id)
+                    .reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+                const itemPending = itemAmount - itemPaid;
+                const itemIsPaid = itemPending <= 0.004;
+
                 const detailTr = document.createElement('tr');
                 detailTr.style.background = 'rgba(0,0,0,0.15)';
                 detailTr.innerHTML = `
-                    <td style="padding-left: 2rem; font-size: 0.8rem; color: var(--text-muted);">${dateStr} - ${item.description || 'Sin descripción'}</td>
-                    <td class="text-right text-danger" style="font-size: 0.8rem;">${formatCurrency(parseFloat(item.amount || 0))}</td>
-                    <td class="text-center"><button class="btn btn-delete btn-sm delete-debt-btn" data-id="${item.id}"><i data-lucide="trash-2"></i></button></td>
+                    <td style="padding-left: 2rem; font-size: 0.8rem; color: var(--text-muted);">
+                        ${dateStr} - ${item.description || 'Sin descripción'}
+                        ${itemPaid > 0 && !itemIsPaid ? `<div style="font-size: 0.72rem; color: var(--warning);">Abonado ${formatCurrency(itemPaid)} · Falta ${formatCurrency(itemPending)}</div>` : ''}
+                    </td>
+                    <td class="text-right ${itemIsPaid ? 'text-success' : 'text-danger'}" style="font-size: 0.8rem;">
+                        ${itemIsPaid ? '<i data-lucide="check-circle" style="width:12px; height:12px; vertical-align: middle;"></i> PAGADO' : formatCurrency(itemAmount)}
+                    </td>
+                    <td class="text-center">
+                        <div style="display: flex; gap: 0.2rem; align-items: center; justify-content: flex-end;">
+                            ${!itemIsPaid ? `
+                                <input type="number" step="0.01" class="table-input item-abono-input" placeholder="Abonar" style="width: 55px; text-align: right; font-size: 0.75rem;" data-item-id="${item.id}">
+                                <button class="btn btn-outline btn-sm item-abonar-btn" data-item-id="${item.id}" style="padding: 0.25rem; border-color: var(--success); color: var(--success);" title="Abonar a este ítem específico"><i data-lucide="hand-coins" style="width: 12px; height: 12px;"></i></button>
+                            ` : ''}
+                            <button class="btn btn-delete btn-sm delete-debt-btn" data-id="${item.id}" title="Eliminar este cargo"><i data-lucide="trash-2" style="width: 12px; height: 12px;"></i></button>
+                        </div>
+                    </td>
                 `;
                 tbody.appendChild(detailTr);
             });
@@ -610,10 +638,12 @@ const renderDebts = () => {
             const sortedPayments = [...g.payments].sort((a, b) => new Date(b.date) - new Date(a.date));
             sortedPayments.forEach(p => {
                 const dateStr = p.date ? new Date(p.date).toLocaleDateString('es-ES') : '';
+                const linkedItem = p.debtId ? g.items.find(it => it.id === p.debtId) : null;
+                const label = linkedItem ? `Abono → ${linkedItem.description || 'ítem'}` : 'Abono general';
                 const payTr = document.createElement('tr');
                 payTr.style.background = 'rgba(34, 197, 94, 0.08)';
                 payTr.innerHTML = `
-                    <td style="padding-left: 2rem; font-size: 0.8rem; color: var(--success);"><i data-lucide="check" style="width: 12px; height: 12px; vertical-align: middle;"></i> ${dateStr} - Abono</td>
+                    <td style="padding-left: 2rem; font-size: 0.8rem; color: var(--success);"><i data-lucide="check" style="width: 12px; height: 12px; vertical-align: middle;"></i> ${dateStr} - ${label}</td>
                     <td class="text-right text-success" style="font-size: 0.8rem;">${formatCurrency(parseFloat(p.amount || 0))}</td>
                     <td class="text-center"><button class="btn btn-delete btn-sm delete-debtpayment-btn" data-id="${p.id}"><i data-lucide="trash-2"></i></button></td>
                 `;
@@ -1749,6 +1779,7 @@ const setupFinanceEventListeners = () => {
             e.stopPropagation();
             const id = parseInt(delBtn.dataset.id);
             state.debts = state.debts.filter(d => d.id !== id);
+            state.debtPayments = state.debtPayments.filter(p => p.debtId !== id);
             saveData();
             renderDebts();
             return;
@@ -1779,6 +1810,27 @@ const setupFinanceEventListeners = () => {
             state.debtPayments.push({ id: Date.now(), name, amount, date: new Date().toISOString() });
             saveData();
             renderDebts();
+            return;
+        }
+
+        const itemAbonarBtn = e.target.closest('.item-abonar-btn');
+        if (itemAbonarBtn) {
+            e.stopPropagation();
+            const itemId = parseInt(itemAbonarBtn.dataset.itemId);
+            const debtItem = state.debts.find(d => d.id === itemId);
+            if (!debtItem) return;
+
+            const input = itemAbonarBtn.closest('td').querySelector('.item-abono-input');
+            const amount = parseFloat(input.value);
+
+            if (isNaN(amount) || amount <= 0) {
+                alert('Ingresa un monto válido para el abono.');
+                return;
+            }
+
+            state.debtPayments.push({ id: Date.now(), debtId: itemId, name: debtItem.name, amount, date: new Date().toISOString() });
+            saveData();
+            renderDebts();
         }
     });
 
@@ -1787,6 +1839,11 @@ const setupFinanceEventListeners = () => {
         if (e.target.classList.contains('debt-abono-input') && e.key === 'Enter') {
             e.preventDefault();
             const btn = e.target.closest('td').querySelector('.debt-abonar-btn');
+            if (btn) btn.click();
+        }
+        if (e.target.classList.contains('item-abono-input') && e.key === 'Enter') {
+            e.preventDefault();
+            const btn = e.target.closest('td').querySelector('.item-abonar-btn');
             if (btn) btn.click();
         }
     });
