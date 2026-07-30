@@ -484,8 +484,12 @@ const renderCapital = () => {
                     const lTr = document.createElement('tr');
                     lTr.style.background = 'rgba(0,0,0,0.15)';
                     lTr.innerHTML = `
-                        <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--text-muted);">${dateStr} - ${l.description || 'Préstamo'}</td>
-                        <td class="text-right" style="font-size: 0.78rem;">${formatCurrency(parseFloat(l.amount || 0))}</td>
+                        <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--text-muted);">
+                            ${dateStr} - <input type="text" class="table-input loan-edit-desc" data-id="${l.id}" value="${l.description || ''}" style="width: 140px; font-size: 0.78rem;">
+                        </td>
+                        <td class="text-right" style="font-size: 0.78rem;">
+                            <input type="number" step="0.01" class="table-input loan-edit-amount" data-id="${l.id}" value="${l.amount}" style="width: 80px; text-align: right; font-size: 0.78rem; color: var(--danger);">
+                        </td>
                         <td class="text-center"><button class="btn btn-delete btn-sm delete-loan-btn" data-id="${l.id}"><i data-lucide="trash-2"></i></button></td>
                     `;
                     tbody.appendChild(lTr);
@@ -1799,6 +1803,23 @@ const setupFinanceEventListeners = () => {
             e.preventDefault();
             const btn = e.target.closest('td').querySelector('.new-pool-loan-btn');
             if (btn) btn.click();
+        }
+    });
+
+    // Editar el monto o la descripción de un préstamo ya registrado
+    document.getElementById('capitalPoolsBody').addEventListener('change', (e) => {
+        const id = parseInt(e.target.dataset.id);
+        const loan = state.loans.find(l => l.id === id);
+        if (!loan) return;
+
+        if (e.target.classList.contains('loan-edit-amount')) {
+            loan.amount = parseFloat(e.target.value) || 0;
+            saveData();
+            renderCapital();
+        } else if (e.target.classList.contains('loan-edit-desc')) {
+            loan.description = e.target.value;
+            saveData();
+            renderCapital();
         }
     });
 
