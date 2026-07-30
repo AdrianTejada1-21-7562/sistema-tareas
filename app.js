@@ -35,6 +35,7 @@ let dismissedAlerts = new Set();
 let expandedDebtors = new Set();
 let expandedPools = new Set();
 let expandedPoolBorrowers = new Set(); // claves: `${capitalSourceId}:${borrowerId}`
+let editingBorrowers = new Set(); // ids de deudores cuyos préstamos/abonos se muestran editables
 let showArchivedBorrowers = false;
 let filterState = {
     sortCol: 'nextDate',
@@ -464,6 +465,7 @@ const renderCapital = () => {
                         <input type="text" class="table-input pool-borrower-abono-desc" placeholder="Descripción (opcional)" style="width: 130px;" data-pool="${source.id}" data-borrower="${b.id}">
                         <input type="number" step="0.01" class="table-input pool-borrower-abono-input" placeholder="Abonar" style="width: 65px; text-align: right;" data-pool="${source.id}" data-borrower="${b.id}">
                         <button class="btn btn-outline btn-sm pool-borrower-abonar-btn" data-pool="${source.id}" data-borrower="${b.id}" style="padding: 0.3rem; border-color: var(--success); color: var(--success);" title="Registrar Abono"><i data-lucide="hand-coins"></i></button>
+                        <button class="btn btn-outline btn-sm borrower-edit-btn" data-id="${b.id}" style="padding: 0.3rem; ${editingBorrowers.has(b.id) ? 'border-color: var(--primary); color: var(--primary);' : ''}" title="${editingBorrowers.has(b.id) ? 'Terminar edición' : 'Editar sus préstamos y abonos'}"><i data-lucide="${editingBorrowers.has(b.id) ? 'check' : 'pencil'}"></i></button>
                         <button class="btn btn-outline btn-sm borrower-archive-btn" data-id="${b.id}" style="padding: 0.3rem;" title="${b.archived ? 'Reactivar' : 'Archivar'}"><i data-lucide="${b.archived ? 'archive-restore' : 'archive'}"></i></button>
                         <button class="btn btn-delete btn-sm borrower-delete-btn" data-id="${b.id}" title="Eliminar Deudor"><i data-lucide="trash-2"></i></button>
                     </div>
@@ -478,26 +480,51 @@ const renderCapital = () => {
             tbody.appendChild(bTr);
 
             if (isSubExpanded) {
+                const isEditingBorrower = editingBorrowers.has(b.id);
+
                 const sortedLoans = [...loans].sort((a, b2) => new Date(b2.date) - new Date(a.date));
                 sortedLoans.forEach(l => {
                     const dateStr = formatDateOnly(l.date);
                     const lTr = document.createElement('tr');
                     lTr.style.background = 'rgba(0,0,0,0.15)';
-                    lTr.innerHTML = `
-                        <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--text-muted);">
-                            ${dateStr} - <input type="text" class="table-input loan-edit-desc" data-id="${l.id}" value="${l.description || ''}" style="width: 140px; font-size: 0.78rem;">
-                        </td>
-                        <td class="text-right" style="font-size: 0.78rem;">
-                            <input type="number" step="0.01" class="table-input loan-edit-amount" data-id="${l.id}" value="${l.amount}" style="width: 80px; text-align: right; font-size: 0.78rem; color: var(--danger);">
-                        </td>
-                        <td class="text-center"><button class="btn btn-delete btn-sm delete-loan-btn" data-id="${l.id}"><i data-lucide="trash-2"></i></button></td>
-                    `;
+                    if (isEditingBorrower) {
+                        lTr.innerHTML = `
+                            <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--text-muted);">
+                                ${dateStr} - <input type="text" class="table-input loan-edit-desc" data-id="${l.id}" value="${l.description || ''}" style="width: 140px; font-size: 0.78rem;">
+                            </td>
+                            <td class="text-right" style="font-size: 0.78rem;">
+                                <input type="number" step="0.01" class="table-input loan-edit-amount" data-id="${l.id}" value="${l.amount}" style="width: 80px; text-align: right; font-size: 0.78rem; color: var(--danger);">
+                            </td>
+                            <td class="text-center"><button class="btn btn-delete btn-sm delete-loan-btn" data-id="${l.id}"><i data-lucide="trash-2"></i></button></td>
+                        `;
+                    } else {
+                        lTr.innerHTML = `
+                            <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--text-muted);">${dateStr} - ${l.description || 'Préstamo'}</td>
+                            <td class="text-right" style="font-size: 0.78rem;">${formatCurrency(parseFloat(l.amount || 0))}</td>
+                            <td class="text-center"><button class="btn btn-delete btn-sm delete-loan-btn" data-id="${l.id}"><i data-lucide="trash-2"></i></button></td>
+                        `;
+                    }
                     tbody.appendChild(lTr);
                 });
 
                 const sortedPayments = [...payments].sort((a, b2) => new Date(b2.date) - new Date(a.date));
                 sortedPayments.forEach(p => {
                     const dateStr = p.date ? new Date(p.date).toLocaleDateString('es-ES') : '';
+                    if (isEditingBorrower) {
+                        const pTr = document.createElement('tr');
+                        pTr.style.background = 'rgba(34, 197, 94, 0.08)';
+                        pTr.innerHTML = `
+                            <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--success);">
+                                ${dateStr} - Abono - <input type="text" class="table-input payment-edit-desc" data-id="${p.id}" value="${p.description || ''}" style="width: 120px; font-size: 0.78rem;">
+                            </td>
+                            <td class="text-right" style="font-size: 0.78rem;">
+                                <input type="number" step="0.01" class="table-input payment-edit-amount" data-id="${p.id}" value="${p.amount}" style="width: 75px; text-align: right; font-size: 0.78rem; color: var(--success);">
+                            </td>
+                            <td class="text-center"><button class="btn btn-delete btn-sm delete-loanpayment-btn" data-id="${p.id}"><i data-lucide="trash-2"></i></button></td>
+                        `;
+                        tbody.appendChild(pTr);
+                        return;
+                    }
                     const label = p.description ? `Abono - ${p.description}` : 'Abono';
                     const pTr = document.createElement('tr');
                     pTr.style.background = 'rgba(34, 197, 94, 0.08)';
@@ -1746,6 +1773,16 @@ const setupFinanceEventListeners = () => {
             return;
         }
 
+        const editBtn = e.target.closest('.borrower-edit-btn');
+        if (editBtn) {
+            e.stopPropagation();
+            const id = parseInt(editBtn.dataset.id);
+            if (editingBorrowers.has(id)) editingBorrowers.delete(id);
+            else editingBorrowers.add(id);
+            renderCapital();
+            return;
+        }
+
         const archiveBtn = e.target.closest('.borrower-archive-btn');
         if (archiveBtn) {
             e.stopPropagation();
@@ -1806,18 +1843,25 @@ const setupFinanceEventListeners = () => {
         }
     });
 
-    // Editar el monto o la descripción de un préstamo ya registrado
+    // Editar el monto o la descripción de un préstamo o de un abono ya registrado
     document.getElementById('capitalPoolsBody').addEventListener('change', (e) => {
         const id = parseInt(e.target.dataset.id);
-        const loan = state.loans.find(l => l.id === id);
-        if (!loan) return;
 
-        if (e.target.classList.contains('loan-edit-amount')) {
-            loan.amount = parseFloat(e.target.value) || 0;
+        if (e.target.classList.contains('loan-edit-amount') || e.target.classList.contains('loan-edit-desc')) {
+            const loan = state.loans.find(l => l.id === id);
+            if (!loan) return;
+            if (e.target.classList.contains('loan-edit-amount')) loan.amount = parseFloat(e.target.value) || 0;
+            else loan.description = e.target.value;
             saveData();
             renderCapital();
-        } else if (e.target.classList.contains('loan-edit-desc')) {
-            loan.description = e.target.value;
+            return;
+        }
+
+        if (e.target.classList.contains('payment-edit-amount') || e.target.classList.contains('payment-edit-desc')) {
+            const payment = state.loanPayments.find(p => p.id === id);
+            if (!payment) return;
+            if (e.target.classList.contains('payment-edit-amount')) payment.amount = parseFloat(e.target.value) || 0;
+            else payment.description = e.target.value;
             saveData();
             renderCapital();
         }
