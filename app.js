@@ -677,15 +677,23 @@ const renderDebts = () => {
         tbody.appendChild(tr);
 
         if (isExpanded) {
-            const sortedItems = [...g.items].sort((a, b) => new Date(b.date) - new Date(a.date));
-            sortedItems.forEach(item => {
-                const dateStr = formatDateOnly(item.date);
+            // Pendientes primero (más reciente arriba), lo ya pagado se hunde al final.
+            const itemsWithStatus = g.items.map(item => {
                 const itemAmount = parseFloat(item.amount || 0);
                 const itemPaid = state.debtPayments
                     .filter(p => p.debtId === item.id)
                     .reduce((s, p) => s + parseFloat(p.amount || 0), 0);
                 const itemPending = itemAmount - itemPaid;
-                const itemIsPaid = itemPending <= 0.004;
+                return { item, itemPaid, itemPending, itemIsPaid: itemPending <= 0.004 };
+            });
+            itemsWithStatus.sort((a, b) => {
+                if (a.itemIsPaid !== b.itemIsPaid) return a.itemIsPaid ? 1 : -1;
+                return new Date(b.item.date) - new Date(a.item.date);
+            });
+
+            itemsWithStatus.forEach(({ item, itemPaid, itemPending, itemIsPaid }) => {
+                const dateStr = formatDateOnly(item.date);
+                const itemAmount = parseFloat(item.amount || 0);
 
                 const detailTr = document.createElement('tr');
                 detailTr.style.background = 'rgba(0,0,0,0.15)';
