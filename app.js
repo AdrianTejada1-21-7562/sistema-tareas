@@ -591,7 +591,7 @@ const renderDebts = () => {
             <td class="text-center">
                 <div style="display: flex; gap: 0.25rem; align-items: center; justify-content: flex-end;">
                     <input type="number" step="0.01" class="table-input debt-abono-input" placeholder="Abonar" style="width: 75px; text-align: right;" data-name="${g.nameDisplay}">
-                    <button class="btn btn-outline btn-sm debt-abonar-btn" data-name="${g.nameDisplay}" style="padding: 0.35rem; border-color: var(--success); color: var(--success);" title="Registrar Abono"><i data-lucide="hand-coins"></i></button>
+                    <button class="btn btn-outline btn-sm debt-abonar-btn" data-name="${g.nameDisplay}" style="padding: 0.35rem; border-color: var(--success); color: var(--success);" title="Con monto: abona ese valor. Sin monto: paga todo lo pendiente."><i data-lucide="hand-coins"></i></button>
                     <button class="btn btn-outline btn-sm debt-copy-btn" style="padding: 0.35rem;" title="Copiar resumen de esta persona"><i data-lucide="copy"></i></button>
                 </div>
             </td>
@@ -674,7 +674,7 @@ const renderDebts = () => {
                         <div style="display: flex; gap: 0.2rem; align-items: center; justify-content: flex-end;">
                             ${!itemIsPaid ? `
                                 <input type="number" step="0.01" class="table-input item-abono-input" placeholder="Abonar" style="width: 55px; text-align: right; font-size: 0.75rem;" data-item-id="${item.id}">
-                                <button class="btn btn-outline btn-sm item-abonar-btn" data-item-id="${item.id}" style="padding: 0.25rem; border-color: var(--success); color: var(--success);" title="Abonar a este ítem específico"><i data-lucide="hand-coins" style="width: 12px; height: 12px;"></i></button>
+                                <button class="btn btn-outline btn-sm item-abonar-btn" data-item-id="${item.id}" style="padding: 0.25rem; border-color: var(--success); color: var(--success);" title="Con monto: abona ese valor. Sin monto: paga todo este ítem."><i data-lucide="hand-coins" style="width: 12px; height: 12px;"></i></button>
                             ` : ''}
                             <button class="btn btn-delete btn-sm delete-debt-btn" data-id="${item.id}" title="Eliminar este cargo"><i data-lucide="trash-2" style="width: 12px; height: 12px;"></i></button>
                         </div>
@@ -1867,7 +1867,23 @@ const setupFinanceEventListeners = () => {
             e.stopPropagation();
             const name = abonarBtn.dataset.name;
             const input = abonarBtn.closest('td').querySelector('.debt-abono-input');
-            const amount = parseFloat(input.value);
+            const typedValue = input.value.trim();
+
+            let amount;
+            if (typedValue === '') {
+                // Sin monto escrito: pagar de una vez todo lo pendiente de esta persona.
+                const normalize = (str) => str ? str.toString().normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase() : '';
+                const normName = normalize(name);
+                const totalCharged = state.debts
+                    .filter(d => normalize(d.name) === normName)
+                    .reduce((s, d) => s + parseFloat(d.amount || 0), 0);
+                const totalPaid = state.debtPayments
+                    .filter(p => normalize(p.name) === normName)
+                    .reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+                amount = totalCharged - totalPaid;
+            } else {
+                amount = parseFloat(typedValue);
+            }
 
             if (isNaN(amount) || amount <= 0) {
                 alert('Ingresa un monto válido para el abono.');
@@ -1888,7 +1904,18 @@ const setupFinanceEventListeners = () => {
             if (!debtItem) return;
 
             const input = itemAbonarBtn.closest('td').querySelector('.item-abono-input');
-            const amount = parseFloat(input.value);
+            const typedValue = input.value.trim();
+
+            let amount;
+            if (typedValue === '') {
+                // Sin monto escrito: pagar de una vez todo lo pendiente de este ítem.
+                const itemPaidSoFar = state.debtPayments
+                    .filter(p => p.debtId === itemId)
+                    .reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+                amount = parseFloat(debtItem.amount || 0) - itemPaidSoFar;
+            } else {
+                amount = parseFloat(typedValue);
+            }
 
             if (isNaN(amount) || amount <= 0) {
                 alert('Ingresa un monto válido para el abono.');
