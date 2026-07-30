@@ -109,14 +109,40 @@ const init = async () => {
     }
 };
 
+let cloudSyncTimeout = null;
+
 const saveData = () => {
+    // Lo local (lo que ves en pantalla) siempre es instantáneo, nunca espera a la nube.
     localStorage.setItem('sistemaTareasData', JSON.stringify(state));
     calculateSummary();
 
     if (WEB_APP_URL) {
-        syncToCloud();
+        // Si haces varias acciones seguidas (abonar a 3 ítems, borrar 2 cosas, etc.), agrupamos
+        // todo en un solo viaje a Google Sheets ~1s después de la última acción, en vez de
+        // disparar una espera de ~3s por cada clic.
+        const statusEl = document.getElementById('syncStatus');
+        if (statusEl) {
+            statusEl.className = 'sync-status sync-loading';
+            statusEl.innerHTML = '<i data-lucide="refresh-cw"></i> Guardando...';
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+        clearTimeout(cloudSyncTimeout);
+        cloudSyncTimeout = setTimeout(syncToCloud, 1000);
     }
 };
+
+// Como cambiar de página (Sistema de Tareas <-> Control Financiero) recarga todo, si el usuario
+// navega antes de que se cumpla el segundo de espera de arriba, mandamos el guardado pendiente
+// de forma confiable con sendBeacon en vez de perderlo.
+window.addEventListener('pagehide', () => {
+    if (cloudSyncTimeout && WEB_APP_URL) {
+        clearTimeout(cloudSyncTimeout);
+        cloudSyncTimeout = null;
+        const jsonData = JSON.stringify(state);
+        const blob = new Blob([`action=save&data=${encodeURIComponent(jsonData)}`], { type: 'application/x-www-form-urlencoded' });
+        navigator.sendBeacon(WEB_APP_URL, blob);
+    }
+});
 
 const syncToCloud = () => {
     const statusEl = document.getElementById('syncStatus');
