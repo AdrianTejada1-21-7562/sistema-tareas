@@ -482,7 +482,14 @@ const renderCapital = () => {
             if (isSubExpanded) {
                 const isEditingBorrower = editingBorrowers.has(b.id);
 
-                const sortedLoans = [...loans].sort((a, b2) => new Date(b2.date) - new Date(a.date));
+                const sortedLoans = [...loans].sort((a, b2) => {
+                    const aPending = parseFloat(a.amount || 0) - state.loanPayments.filter(p => p.loanId === a.id).reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+                    const bPending = parseFloat(b2.amount || 0) - state.loanPayments.filter(p => p.loanId === b2.id).reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+                    const aPaid = aPending <= 0.004;
+                    const bPaid = bPending <= 0.004;
+                    if (aPaid !== bPaid) return aPaid ? 1 : -1;
+                    return new Date(b2.date) - new Date(a.date);
+                });
                 sortedLoans.forEach(l => {
                     const dateStr = formatDateOnly(l.date);
                     const lTr = document.createElement('tr');
@@ -498,10 +505,30 @@ const renderCapital = () => {
                             <td class="text-center"><button class="btn btn-delete btn-sm delete-loan-btn" data-id="${l.id}"><i data-lucide="trash-2"></i></button></td>
                         `;
                     } else {
+                        const loanAmount = parseFloat(l.amount || 0);
+                        const loanPaid = state.loanPayments
+                            .filter(p => p.loanId === l.id)
+                            .reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+                        const loanPending = loanAmount - loanPaid;
+                        const loanIsPaid = loanPending <= 0.004;
+
                         lTr.innerHTML = `
-                            <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--text-muted);">${dateStr} - ${l.description || 'Préstamo'}</td>
-                            <td class="text-right" style="font-size: 0.78rem;">${formatCurrency(parseFloat(l.amount || 0))}</td>
-                            <td class="text-center"><button class="btn btn-delete btn-sm delete-loan-btn" data-id="${l.id}"><i data-lucide="trash-2"></i></button></td>
+                            <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--text-muted);">
+                                ${dateStr} - ${l.description || 'Préstamo'}
+                                ${loanPaid > 0 && !loanIsPaid ? `<div style="font-size: 0.7rem; color: var(--warning);">Abonado ${formatCurrency(loanPaid)} · Falta ${formatCurrency(loanPending)}</div>` : ''}
+                            </td>
+                            <td class="text-right ${loanIsPaid ? 'text-success' : ''}" style="font-size: 0.78rem;">
+                                ${loanIsPaid ? '<i data-lucide="check-circle" style="width:11px; height:11px; vertical-align: middle;"></i> PAGADO' : formatCurrency(loanAmount)}
+                            </td>
+                            <td class="text-center">
+                                <div style="display: flex; gap: 0.2rem; align-items: center; justify-content: flex-end;">
+                                    ${!loanIsPaid ? `
+                                        <input type="number" step="0.01" class="table-input loan-item-abono-input" placeholder="Abonar" style="width: 60px; text-align: right; font-size: 0.75rem;" data-loan-id="${l.id}">
+                                        <button class="btn btn-outline btn-sm loan-item-abonar-btn" data-loan-id="${l.id}" data-pool="${source.id}" data-borrower="${b.id}" style="padding: 0.25rem; border-color: var(--success); color: var(--success);" title="Con monto: abona ese valor. Sin monto: paga todo este préstamo."><i data-lucide="hand-coins" style="width: 12px; height: 12px;"></i></button>
+                                    ` : ''}
+                                    <button class="btn btn-delete btn-sm delete-loan-btn" data-id="${l.id}"><i data-lucide="trash-2" style="width: 12px; height: 12px;"></i></button>
+                                </div>
+                            </td>
                         `;
                     }
                     tbody.appendChild(lTr);
@@ -525,7 +552,10 @@ const renderCapital = () => {
                         tbody.appendChild(pTr);
                         return;
                     }
-                    const label = p.description ? `Abono - ${p.description}` : 'Abono';
+                    const linkedLoan = p.loanId ? loans.find(l2 => l2.id === p.loanId) : null;
+                    const label = linkedLoan
+                        ? `Abono → ${linkedLoan.description || 'préstamo'}`
+                        : (p.description ? `Abono - ${p.description}` : 'Abono');
                     const pTr = document.createElement('tr');
                     pTr.style.background = 'rgba(34, 197, 94, 0.08)';
                     pTr.innerHTML = `
@@ -1781,6 +1811,40 @@ const setupFinanceEventListeners = () => {
             return;
         }
 
+        const loanItemAbonarBtn = e.target.closest('.loan-item-abonar-btn');
+        if (loanItemAbonarBtn) {
+            e.stopPropagation();
+            const loanId = parseInt(loanItemAbonarBtn.dataset.loanId);
+            const poolId2 = parseInt(loanItemAbonarBtn.dataset.pool);
+            const borrowerId2 = parseInt(loanItemAbonarBtn.dataset.borrower);
+            const loan = state.loans.find(l => l.id === loanId);
+            if (!loan) return;
+
+            const input = loanItemAbonarBtn.closest('td').querySelector('.loan-item-abono-input');
+            const typedValue = input.value.trim();
+
+            let amount;
+            if (typedValue === '') {
+                // Sin monto escrito: pagar de una vez todo lo pendiente de este préstamo.
+                const paidSoFar = state.loanPayments
+                    .filter(p => p.loanId === loanId)
+                    .reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+                amount = parseFloat(loan.amount || 0) - paidSoFar;
+            } else {
+                amount = parseFloat(typedValue);
+            }
+
+            if (isNaN(amount) || amount <= 0) {
+                alert('Ingresa un monto válido para el abono.');
+                return;
+            }
+
+            state.loanPayments.push({ id: Date.now(), capitalSourceId: poolId2, borrowerId: borrowerId2, loanId, amount, description: loan.description || '', date: new Date().toISOString() });
+            saveData();
+            renderCapital();
+            return;
+        }
+
         const editBtn = e.target.closest('.borrower-edit-btn');
         if (editBtn) {
             e.stopPropagation();
@@ -1823,6 +1887,7 @@ const setupFinanceEventListeners = () => {
             e.stopPropagation();
             const id = parseInt(deleteLoanBtn.dataset.id);
             state.loans = state.loans.filter(l => l.id !== id);
+            state.loanPayments = state.loanPayments.filter(p => p.loanId !== id);
             saveData();
             renderCapital();
             return;
@@ -1847,6 +1912,11 @@ const setupFinanceEventListeners = () => {
         if (e.target.classList.contains('new-pool-loan-amount') && e.key === 'Enter') {
             e.preventDefault();
             const btn = e.target.closest('td').querySelector('.new-pool-loan-btn');
+            if (btn) btn.click();
+        }
+        if (e.target.classList.contains('loan-item-abono-input') && e.key === 'Enter') {
+            e.preventDefault();
+            const btn = e.target.closest('td').querySelector('.loan-item-abonar-btn');
             if (btn) btn.click();
         }
     });
