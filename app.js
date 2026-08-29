@@ -664,7 +664,14 @@ const renderDebts = () => {
         copyBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             const sortedForCopy = [...g.items].sort((a, b) => new Date(a.date) - new Date(b.date));
-            const lines = [g.nameDisplay, ''];
+
+            // El resumen copiado separa lo pendiente de lo ya pagado en dos bloques.
+            const pendingLines = [];
+            const paidLines = [];
+            let pendingSubtotal = 0;
+            let paidSubtotal = 0;
+            let assignedPaid = 0;
+
             sortedForCopy.forEach(item => {
                 const dateStr = formatDateOnly(item.date);
                 const desc = item.description || 'Cargo';
@@ -672,18 +679,40 @@ const renderDebts = () => {
                 const itemPaid = state.debtPayments
                     .filter(p => p.debtId === item.id)
                     .reduce((s, p) => s + parseFloat(p.amount || 0), 0);
-                const itemIsPaid = (itemAmount - itemPaid) <= 0.004;
-                let line = `- ${desc}${dateStr ? ' (' + dateStr + ')' : ''}: ${formatCurrency(itemAmount)}`;
-                if (itemIsPaid) line += ' (PAGADO)';
-                else if (itemPaid > 0) line += ` (abonado ${formatCurrency(itemPaid)})`;
-                lines.push(line);
+                assignedPaid += itemPaid;
+                const itemPending = itemAmount - itemPaid;
+                const baseLine = `- ${desc}${dateStr ? ' (' + dateStr + ')' : ''}: ${formatCurrency(itemAmount)}`;
+                if (itemPending <= 0.004) {
+                    paidLines.push(baseLine);
+                    paidSubtotal += itemAmount;
+                } else {
+                    pendingSubtotal += itemPending;
+                    pendingLines.push(itemPaid > 0
+                        ? `${baseLine} (abonado ${formatCurrency(itemPaid)} - falta ${formatCurrency(itemPending)})`
+                        : baseLine);
+                }
             });
-            lines.push('');
-            lines.push(`Total: ${formatCurrency(g.totalCharged)}`);
-            if (g.totalPaid > 0) {
-                lines.push(`Abonado: ${formatCurrency(g.totalPaid)}`);
-                lines.push(`Pendiente: ${formatCurrency(g.pending)}`);
+
+            const lines = [g.nameDisplay];
+
+            if (pendingLines.length > 0) {
+                lines.push('', 'PENDIENTE:');
+                lines.push(...pendingLines);
+                lines.push(`Subtotal pendiente: ${formatCurrency(pendingSubtotal)}`);
             }
+
+            if (paidLines.length > 0) {
+                lines.push('', 'PAGADO:');
+                lines.push(...paidLines);
+                lines.push(`Subtotal pagado: ${formatCurrency(paidSubtotal)}`);
+            }
+
+            const generalPaid = g.totalPaid - assignedPaid;
+
+            lines.push('', `Total cargado: ${formatCurrency(g.totalCharged)}`);
+            if (g.totalPaid > 0) lines.push(`Total abonado: ${formatCurrency(g.totalPaid)}`);
+            if (generalPaid > 0.004) lines.push(`(incluye ${formatCurrency(generalPaid)} en abonos generales, sin asignar a un cargo)`);
+            lines.push(g.pending <= 0.004 ? 'Pendiente: PAGADO' : `Pendiente: ${formatCurrency(g.pending)}`);
             const text = lines.join('\n');
 
             const showCopied = () => {
