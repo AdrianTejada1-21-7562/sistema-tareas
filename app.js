@@ -1083,7 +1083,7 @@ const renderVencimientos = () => {
                     <label>Cambiar fecha
                         <input type="date" class="vence-fecha" data-id="${p.id}" value="${esc(p.nextDate)}">
                     </label>
-                    <button class="btn btn-primary vence-cuenta" type="button" data-name="${esc(p.name)}">Ver cuenta</button>
+                    <button class="btn btn-primary vence-nueva-tarea" type="button" data-name="${esc(p.name)}"><i data-lucide="plus"></i> Nueva tarea</button>
                 </div>
             </div>
         </li>`;
@@ -2465,11 +2465,26 @@ document.addEventListener('click', (e) => {
         if (abierta) personasAbiertas.add(id); else personasAbiertas.delete(id);
         return;
     }
-    const boton = e.target.closest('.vence-cuenta');
+    const boton = e.target.closest('.vence-nueva-tarea');
     if (!boton) return;
+    // Abre el formulario listo para esa persona, con su cuenta debajo
+    if (editingTaskId) {
+        editingTaskId = null;
+        const guardar = document.querySelector('#taskForm button[type="submit"]');
+        guardar.innerHTML = '<i data-lucide="plus"></i> Registrar tarea';
+        guardar.style.backgroundColor = '';
+        guardar.style.color = '';
+    }
     document.getElementById('searchPerson').value = boton.dataset.name;
     document.getElementById('btnSearch').click();
+    document.getElementById('panelTarea').open = true;
+    document.getElementById('taskName').value = boton.dataset.name;
+    document.getElementById('taskAssignment').value = '';
+    document.getElementById('taskAmount').value = '';
+    document.getElementById('taskDate').value = hoyLocal();
     location.hash = 'tareas';
+    lucide.createIcons();
+    setTimeout(() => document.getElementById('taskAssignment').focus(), 60); // después de cambiar de sección
 });
 
 document.getElementById('personasBuscar').addEventListener('input', () => renderPeople());
