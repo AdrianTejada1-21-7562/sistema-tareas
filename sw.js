@@ -1,7 +1,7 @@
 // Permite abrir la app sin internet. Primero intenta la red, para que cada cambio que se
 // publique en GitHub llegue solo; si no hay conexión, usa la última copia guardada.
 // Los datos NO pasan por aquí: Google Apps Script se comunica directo y nunca se guarda en caché.
-const CACHE = 'sistema-tareas-v4';
+const CACHE = 'sistema-tareas-v5';
 const CACHE_FUENTES = 'sistema-tareas-fuentes-v1';
 const ARCHIVOS = [
     './', 'index.html', 'finanzas.html', 'styles.css', 'app.js', 'vistas.js', 'pwa.js', 'manifest.webmanifest',
@@ -11,7 +11,7 @@ const ARCHIVOS = [
 ];
 
 self.addEventListener('install', (e) => {
-    e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ARCHIVOS)).then(() => self.skipWaiting()));
+    e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ARCHIVOS.map((a) => new Request(a, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -68,8 +68,9 @@ self.addEventListener('fetch', (e) => {
 
     if (url.origin !== self.location.origin) return; // Apps Script y demás: sin tocar
 
+    // no-cache: GitHub deja guardar cada archivo 10 minutos, y tras publicar se mezclarían versiones.
     e.respondWith(
-        fetch(request)
+        fetch(request.url, { cache: 'no-cache' })
             .then((resp) => {
                 if (resp.ok) {
                     const copia = resp.clone();
