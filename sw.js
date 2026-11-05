@@ -1,10 +1,10 @@
 // Permite abrir la app sin internet. Primero intenta la red, para que cada cambio que se
 // publique en GitHub llegue solo; si no hay conexión, usa la última copia guardada.
 // Los datos NO pasan por aquí: Google Apps Script se comunica directo y nunca se guarda en caché.
-const CACHE = 'sistema-tareas-v1';
+const CACHE = 'sistema-tareas-v2';
 const CACHE_FUENTES = 'sistema-tareas-fuentes-v1';
 const ARCHIVOS = [
-    './', 'index.html', 'finanzas.html', 'styles.css', 'app.js', 'pwa.js', 'manifest.webmanifest',
+    './', 'index.html', 'finanzas.html', 'styles.css', 'app.js', 'vistas.js', 'pwa.js', 'manifest.webmanifest',
     'vendor/lucide.min.js', 'vendor/jspdf.umd.min.js', 'vendor/jspdf.plugin.autotable.min.js',
     'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
     'icons/apple-touch-icon.png', 'icons/favicon-48.png'
@@ -22,6 +22,29 @@ self.addEventListener('activate', (e) => {
                 .map((k) => caches.delete(k))))
             .then(() => self.clients.claim())
     );
+});
+
+// Aviso diario enviado desde GitHub: llega aunque la app esté cerrada.
+self.addEventListener('push', (e) => {
+    let aviso = {};
+    try { aviso = e.data ? e.data.json() : {}; } catch (err) { aviso = { cuerpo: e.data.text() }; }
+    e.waitUntil(self.registration.showNotification(aviso.titulo || 'Sistema de Tareas', {
+        body: aviso.cuerpo || '',
+        tag: aviso.tag,
+        icon: 'icons/icon-192.png',
+        badge: 'icons/favicon-48.png',
+        data: { url: aviso.url || 'index.html' }
+    }));
+});
+
+self.addEventListener('notificationclick', (e) => {
+    e.notification.close();
+    const destino = new URL(e.notification.data?.url || 'index.html', self.registration.scope).href;
+    e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((ventanas) => {
+        const abierta = ventanas.find((v) => v.url.startsWith(self.registration.scope));
+        if (abierta) return abierta.focus();
+        return self.clients.openWindow(destino);
+    }));
 });
 
 self.addEventListener('fetch', (e) => {

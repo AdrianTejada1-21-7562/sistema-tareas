@@ -11,6 +11,7 @@ let state = {
     loanPayments: [],
     debts: [],
     debtPayments: [],
+    pushSubs: [], // teléfonos que reciben los avisos de vencimientos
     expenses: [
         { id: 1, type: "RECARGA MENSUAL", amount: 50.00, process: 3000.00, status: "Pendiente" },
         { id: 2, type: "GASOLINA", amount: 300.00, process: 1000.00, status: "Pendiente" },
@@ -31,7 +32,7 @@ let state = {
 let editingTaskId = null; // Para editar tareas
 
 // --- Runtime UI State ---
-let dismissedAlerts = new Set();
+let vencidasAbiertas = false;
 let expandedDebtors = new Set();
 let expandedPools = new Set();
 let expandedPoolBorrowers = new Set(); // claves: `${capitalSourceId}:${borrowerId}`
@@ -63,10 +64,10 @@ const init = async () => {
             state.loanPayments = parsed.loanPayments || [];
             state.debts = parsed.debts || [];
             state.debtPayments = parsed.debtPayments || [];
+            state.pushSubs = parsed.pushSubs || [];
             state.expenses = parsed.expenses || state.expenses;
             state.people = parsed.people || state.people;
             state.goal = parsed.goal || state.goal;
-            state.currentMonth = parsed.currentMonth || state.currentMonth;
         }
     } catch (err) {
         console.error("Error cargando localStorage, usando state por defecto:", err);
@@ -84,7 +85,7 @@ const init = async () => {
         if (tasksGoal) tasksGoal.value = state.goal;
 
         // Fechas por defecto (hoy) en los nuevos formularios de finanzas personales
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = hoyLocal();
         ['capDate', 'borrowerInitialDate', 'debtDate'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = todayStr;
@@ -118,7 +119,7 @@ let cloudSyncTimeout = null;
 // qué cambió cada lado y unirlos en vez de que uno borre lo del otro.
 const CLAVE_PENDIENTE = 'sistemaTareasPendiente';
 const CLAVE_BASE = 'sistemaTareasBase';
-const LISTAS_DE_DATOS = ['tasks', 'capitalSources', 'borrowers', 'loans', 'loanPayments', 'debts', 'debtPayments', 'expenses', 'people'];
+const LISTAS_DE_DATOS = ['tasks', 'capitalSources', 'borrowers', 'loans', 'loanPayments', 'debts', 'debtPayments', 'expenses', 'people', 'pushSubs'];
 let versionLocal = 0;
 let ultimoEnvio = null;
 let ultimaDescarga = 0;
@@ -294,17 +295,16 @@ const loadFromCloud = () => {
                     state.loanPayments = data.loanPayments || [];
                     state.debts = data.debts || [];
                     state.debtPayments = data.debtPayments || [];
+                    state.pushSubs = data.pushSubs || [];
                     if (data.expenses && data.expenses.length > 0) state.expenses = data.expenses;
                     if (data.people && data.people.length > 0) state.people = data.people;
                     if (data.goal) state.goal = data.goal;
-                    if (data.currentMonth) state.currentMonth = data.currentMonth;
 
                     localStorage.setItem(CLAVE_BASE, JSON.stringify(state));
                     if (pendiente) {
                         // Hay cambios hechos aquí que la nube no tiene: se unen, no se pisan.
                         LISTAS_DE_DATOS.forEach(k => { state[k] = combinarLista(base[k], copiaLocal[k], state[k]); });
                         if (copiaLocal.goal !== base.goal) state.goal = copiaLocal.goal;
-                        if (copiaLocal.currentMonth !== base.currentMonth) state.currentMonth = copiaLocal.currentMonth;
                     }
 
                     localStorage.setItem('sistemaTareasData', JSON.stringify(state));
@@ -366,6 +366,29 @@ document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && Date.now() - ultimaDescarga > 30000) refrescarDesdeNube();
 });
 
+// Texto del usuario dentro de plantillas HTML: sin esto, un nombre con comillas corta el campo.
+const esc = (valor) => String(valor ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[c]));
+
+// Fecha de hoy en la hora del dispositivo (toISOString da la de mañana cuando ya es de noche).
+const hoyLocal = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const normalizeString = (str) => {
+    if (!str) return '';
+    return str.toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ').trim().toLowerCase();
+};
+
+// "Ana" y "Ana Martinez" son la misma persona; "Luis" y "Luisa", no: se compara por palabras completas.
+const mismaPersona = (a, b) => {
+    if (!a || !b) return false;
+    const A = ` ${a} `, B = ` ${b} `;
+    return A.includes(B) || B.includes(A);
+};
+
 const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(amount) || 0);
 };
@@ -397,7 +420,7 @@ const renderCapital = () => {
     if (!tbody) return;
     tbody.innerHTML = '';
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = hoyLocal();
 
     // Datalist global de nombres de deudores existentes (para autocompletar al prestar)
     const datalist = document.getElementById('borrowerNamesList');
@@ -455,12 +478,12 @@ const renderCapital = () => {
 
         const poolTr = document.createElement('tr');
         poolTr.style.cursor = 'pointer';
-        poolTr.style.background = 'rgba(59, 130, 246, 0.07)';
+        poolTr.style.background = 'rgba(142, 202, 230, 0.07)';
         poolTr.innerHTML = `
             <td style="font-weight: 600;">
                 <i data-lucide="${isPoolExpanded ? 'chevron-down' : 'chevron-right'}" style="width: 15px; height: 15px; vertical-align: middle; margin-right: 4px;"></i>
-                ${source.source}
-                ${source.description ? `<div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400; margin-left: 19px;">${source.description}</div>` : ''}
+                ${esc(source.source)}
+                ${source.description ? `<div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400; margin-left: 19px;">${esc(source.description)}</div>` : ''}
             </td>
             <td class="text-right">${formatCurrency(parseFloat(source.amount || 0))}</td>
             <td class="text-right ${poolAvailable < 0 ? 'text-danger' : 'text-success'}">${formatCurrency(poolAvailable)} <span style="font-size: 0.7rem; color: var(--text-muted);">disp.</span></td>
@@ -479,12 +502,12 @@ const renderCapital = () => {
         // Mini-formulario: prestar dinero de este capital a un deudor
         const formTr = document.createElement('tr');
         formTr.innerHTML = `
-            <td colspan="4" style="padding: 0.75rem 1rem 0.75rem 1.75rem; background: rgba(59,130,246,0.04);">
+            <td colspan="4" style="padding: 0.75rem 1rem 0.75rem 1.75rem; background: rgba(142, 202, 230, 0.04);">
                 <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
-                    <input type="text" class="new-pool-loan-name" list="borrowerNamesList" autocomplete="off" placeholder="Nombre del deudor" style="flex: 1; min-width: 120px; background: rgba(15,23,42,0.6); border: 1px solid var(--glass-border); border-radius: 6px; padding: 0.4rem; color: var(--text-main);" data-pool="${source.id}">
-                    <input type="number" step="0.01" class="new-pool-loan-amount" placeholder="Monto" style="width: 100px; background: rgba(15,23,42,0.6); border: 1px solid var(--glass-border); border-radius: 6px; padding: 0.4rem; color: var(--text-main);" data-pool="${source.id}">
-                    <input type="date" class="new-pool-loan-date" value="${todayStr}" style="background: rgba(15,23,42,0.6); border: 1px solid var(--glass-border); border-radius: 6px; padding: 0.4rem; color: var(--text-main);" data-pool="${source.id}">
-                    <input type="text" class="new-pool-loan-desc" placeholder="Descripción (opcional)" style="flex: 1; min-width: 100px; background: rgba(15,23,42,0.6); border: 1px solid var(--glass-border); border-radius: 6px; padding: 0.4rem; color: var(--text-main);" data-pool="${source.id}">
+                    <input type="text" class="new-pool-loan-name" list="borrowerNamesList" autocomplete="off" placeholder="Nombre del deudor" style="flex: 1; min-width: 120px; background: var(--bg-color); border: 1px solid var(--glass-border); border-radius: 6px; padding: 0.4rem; color: var(--text-main);" data-pool="${source.id}">
+                    <input type="number" step="0.01" class="new-pool-loan-amount" placeholder="Monto" style="width: 100px; background: var(--bg-color); border: 1px solid var(--glass-border); border-radius: 6px; padding: 0.4rem; color: var(--text-main);" data-pool="${source.id}">
+                    <input type="date" class="new-pool-loan-date" value="${todayStr}" style="background: var(--bg-color); border: 1px solid var(--glass-border); border-radius: 6px; padding: 0.4rem; color: var(--text-main);" data-pool="${source.id}">
+                    <input type="text" class="new-pool-loan-desc" placeholder="Descripción (opcional)" style="flex: 1; min-width: 100px; background: var(--bg-color); border: 1px solid var(--glass-border); border-radius: 6px; padding: 0.4rem; color: var(--text-main);" data-pool="${source.id}">
                     <button class="btn btn-primary btn-sm new-pool-loan-btn" data-pool="${source.id}"><i data-lucide="plus"></i> Prestar</button>
                 </div>
             </td>
@@ -540,7 +563,7 @@ const renderCapital = () => {
             bTr.innerHTML = `
                 <td style="padding-left: 2rem;">
                     <i data-lucide="${isSubExpanded ? 'chevron-down' : 'chevron-right'}" style="width: 13px; height: 13px; vertical-align: middle; margin-right: 4px;"></i>
-                    ${b.name} ${b.archived ? '<span class="status-badge status-pending" style="margin-left: 6px;">ARCHIVADO</span>' : ''}
+                    ${esc(b.name)} ${b.archived ? '<span class="status-badge status-pending" style="margin-left: 6px;">ARCHIVADO</span>' : ''}
                 </td>
                 <td class="text-right">${formatCurrency(totalLoaned)}</td>
                 <td class="text-right ${isPaid ? 'text-success' : 'text-danger'}" style="font-weight: 600;">
@@ -583,7 +606,7 @@ const renderCapital = () => {
                     if (isEditingBorrower) {
                         lTr.innerHTML = `
                             <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--text-muted);">
-                                ${dateStr} - <input type="text" class="table-input loan-edit-desc" data-id="${l.id}" value="${l.description || ''}" style="width: 140px; font-size: 0.78rem;">
+                                ${dateStr} - <input type="text" class="table-input loan-edit-desc" data-id="${l.id}" value="${esc(l.description || '')}" style="width: 140px; font-size: 0.78rem;">
                             </td>
                             <td class="text-right" style="font-size: 0.78rem;">
                                 <input type="number" step="0.01" class="table-input loan-edit-amount" data-id="${l.id}" value="${l.amount}" style="width: 80px; text-align: right; font-size: 0.78rem; color: var(--danger);">
@@ -600,7 +623,7 @@ const renderCapital = () => {
 
                         lTr.innerHTML = `
                             <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--text-muted);">
-                                ${dateStr} - ${l.description || 'Préstamo'}
+                                ${dateStr} - ${esc(l.description || 'Préstamo')}
                                 ${loanPaid > 0 && !loanIsPaid ? `<div style="font-size: 0.7rem; color: var(--warning);">Abonado ${formatCurrency(loanPaid)} · Falta ${formatCurrency(loanPending)}</div>` : ''}
                             </td>
                             <td class="text-right ${loanIsPaid ? 'text-success' : ''}" style="font-size: 0.78rem;">
@@ -625,10 +648,10 @@ const renderCapital = () => {
                     const dateStr = p.date ? new Date(p.date).toLocaleDateString('es-ES') : '';
                     if (isEditingBorrower) {
                         const pTr = document.createElement('tr');
-                        pTr.style.background = 'rgba(34, 197, 94, 0.08)';
+                        pTr.style.background = 'rgba(127, 214, 160, 0.08)';
                         pTr.innerHTML = `
                             <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--success);">
-                                ${dateStr} - Abono - <input type="text" class="table-input payment-edit-desc" data-id="${p.id}" value="${p.description || ''}" style="width: 120px; font-size: 0.78rem;">
+                                ${dateStr} - Abono - <input type="text" class="table-input payment-edit-desc" data-id="${p.id}" value="${esc(p.description || '')}" style="width: 120px; font-size: 0.78rem;">
                             </td>
                             <td class="text-right" style="font-size: 0.78rem;">
                                 <input type="number" step="0.01" class="table-input payment-edit-amount" data-id="${p.id}" value="${p.amount}" style="width: 75px; text-align: right; font-size: 0.78rem; color: var(--success);">
@@ -643,9 +666,9 @@ const renderCapital = () => {
                         ? `Abono → ${linkedLoan.description || 'préstamo'}`
                         : (p.description ? `Abono - ${p.description}` : 'Abono');
                     const pTr = document.createElement('tr');
-                    pTr.style.background = 'rgba(34, 197, 94, 0.08)';
+                    pTr.style.background = 'rgba(127, 214, 160, 0.08)';
                     pTr.innerHTML = `
-                        <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--success);"><i data-lucide="check" style="width: 11px; height: 11px; vertical-align: middle;"></i> ${dateStr} - ${label}</td>
+                        <td colspan="2" style="padding-left: 3rem; font-size: 0.78rem; color: var(--success);"><i data-lucide="check" style="width: 11px; height: 11px; vertical-align: middle;"></i> ${dateStr} - ${esc(label)}</td>
                         <td class="text-right text-success" style="font-size: 0.78rem;">${formatCurrency(parseFloat(p.amount || 0))}</td>
                         <td class="text-center"><button class="btn btn-delete btn-sm delete-loanpayment-btn" data-id="${p.id}"><i data-lucide="trash-2"></i></button></td>
                     `;
@@ -663,10 +686,6 @@ const renderDebts = () => {
     if (!tbody) return;
     tbody.innerHTML = '';
 
-    const normalizeString = (str) => {
-        if (!str) return '';
-        return str.toString().normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
-    };
 
     // Poblar datalist de nombres de deudores (autocompletar)
     const datalist = document.getElementById('debtNamesList');
@@ -726,15 +745,15 @@ const renderDebts = () => {
         if (isPaid) tr.classList.add('row-success');
         tr.innerHTML = `
             <td style="font-weight: 500;">
-                <i data-lucide="${isExpanded ? 'chevron-down' : 'chevron-right'}" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"></i>${g.nameDisplay}
+                <i data-lucide="${isExpanded ? 'chevron-down' : 'chevron-right'}" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"></i>${esc(g.nameDisplay)}
             </td>
             <td class="text-right ${isPaid ? 'text-success' : 'text-danger'}" style="font-weight: 600;">
                 ${isPaid ? '<i data-lucide="check-circle" style="width:14px; height:14px; vertical-align: middle;"></i> PAGADO' : formatCurrency(g.pending)}
             </td>
             <td class="text-center">
                 <div style="display: flex; gap: 0.25rem; align-items: center; justify-content: flex-end;">
-                    <input type="number" step="0.01" class="table-input debt-abono-input" placeholder="Abonar" style="width: 75px; text-align: right;" data-name="${g.nameDisplay}">
-                    <button class="btn btn-outline btn-sm debt-abonar-btn" data-name="${g.nameDisplay}" style="padding: 0.35rem; border-color: var(--success); color: var(--success);" title="Con monto: abona ese valor. Sin monto: paga todo lo pendiente."><i data-lucide="hand-coins"></i></button>
+                    <input type="number" step="0.01" class="table-input debt-abono-input" placeholder="Abonar" style="width: 75px; text-align: right;" data-name="${esc(g.nameDisplay)}">
+                    <button class="btn btn-outline btn-sm debt-abonar-btn" data-name="${esc(g.nameDisplay)}" style="padding: 0.35rem; border-color: var(--success); color: var(--success);" title="Con monto: abona ese valor. Sin monto: paga todo lo pendiente."><i data-lucide="hand-coins"></i></button>
                     <button class="btn btn-outline btn-sm debt-copy-btn" style="padding: 0.35rem;" title="Copiar resumen de esta persona"><i data-lucide="copy"></i></button>
                 </div>
             </td>
@@ -844,7 +863,7 @@ const renderDebts = () => {
                 detailTr.style.background = 'rgba(0,0,0,0.15)';
                 detailTr.innerHTML = `
                     <td style="padding-left: 2rem; font-size: 0.8rem; color: var(--text-muted);">
-                        ${dateStr} - ${item.description || 'Sin descripción'}
+                        ${dateStr} - ${esc(item.description || 'Sin descripción')}
                         ${itemPaid > 0 && !itemIsPaid ? `<div style="font-size: 0.72rem; color: var(--warning);">Abonado ${formatCurrency(itemPaid)} · Falta ${formatCurrency(itemPending)}</div>` : ''}
                     </td>
                     <td class="text-right ${itemIsPaid ? 'text-success' : 'text-danger'}" style="font-size: 0.8rem;">
@@ -869,9 +888,9 @@ const renderDebts = () => {
                 const linkedItem = p.debtId ? g.items.find(it => it.id === p.debtId) : null;
                 const label = linkedItem ? `Abono → ${linkedItem.description || 'ítem'}` : 'Abono general';
                 const payTr = document.createElement('tr');
-                payTr.style.background = 'rgba(34, 197, 94, 0.08)';
+                payTr.style.background = 'rgba(127, 214, 160, 0.08)';
                 payTr.innerHTML = `
-                    <td style="padding-left: 2rem; font-size: 0.8rem; color: var(--success);"><i data-lucide="check" style="width: 12px; height: 12px; vertical-align: middle;"></i> ${dateStr} - ${label}</td>
+                    <td style="padding-left: 2rem; font-size: 0.8rem; color: var(--success);"><i data-lucide="check" style="width: 12px; height: 12px; vertical-align: middle;"></i> ${dateStr} - ${esc(label)}</td>
                     <td class="text-right text-success" style="font-size: 0.8rem;">${formatCurrency(parseFloat(p.amount || 0))}</td>
                     <td class="text-center"><button class="btn btn-delete btn-sm delete-debtpayment-btn" data-id="${p.id}"><i data-lucide="trash-2"></i></button></td>
                 `;
@@ -893,7 +912,7 @@ const renderExpenses = () => {
 
         tr.innerHTML = `
             <td>${index + 1}</td>
-            <td><input type="text" class="table-input expense-type" data-id="${exp.id}" value="${exp.type}"></td>
+            <td><input type="text" class="table-input expense-type" data-id="${exp.id}" value="${esc(exp.type)}"></td>
             <td><input type="number" step="0.01" class="table-input expense-amount" data-id="${exp.id}" value="${exp.amount}"></td>
             <td style="font-weight: 600; color: ${exp.status === 'Pagado' ? 'var(--success)' : 'var(--text-main)'}; padding-left: 0.5rem;">
                 ${formatCurrency(exp.process || 0)}
@@ -954,7 +973,7 @@ const renderPeople = () => {
 
         let datalistHTML = '';
         uniqueNames.forEach(name => {
-            datalistHTML += `<option value="${name}">`;
+            datalistHTML += `<option value="${esc(name)}">`;
         });
         datalist.innerHTML = datalistHTML;
     }
@@ -984,74 +1003,98 @@ const renderPeople = () => {
         const tr = document.createElement('tr');
         if (trClass) tr.className = trClass;
         tr.innerHTML = `
-            <td><input type="text" class="table-input person-mat" data-id="${person.id}" value="${person.matricula}"></td>
-            <td><input type="text" class="table-input person-name" data-id="${person.id}" value="${person.name}"></td>
+            <td><input type="text" class="table-input person-mat" data-id="${person.id}" value="${esc(person.matricula)}"></td>
+            <td><input type="text" class="table-input person-name" data-id="${person.id}" value="${esc(person.name)}"></td>
             <td class="${dateClass}">
                 <input type="date" class="table-input person-date" data-id="${person.id}" value="${person.nextDate}">
             </td>
-            <td><input type="text" class="table-input person-obs" data-id="${person.id}" value="${person.observation}"></td>
+            <td><input type="text" class="table-input person-obs" data-id="${person.id}" value="${esc(person.observation)}"></td>
             <td><button class="btn btn-delete btn-sm" data-id="${person.id}"><i data-lucide="trash-2"></i></button></td>
         `;
         tbody.appendChild(tr);
     });
 
-    // Toasts (Due today or overdue) floating bottom right
-    const toastContainer = document.getElementById('toastContainer');
-    if (toastContainer) {
-        let toastsHtml = '';
-        state.people.forEach(person => {
-            if (person.nextDate) {
-                const alertKey = person.id + '_' + person.nextDate;
-                if (dismissedAlerts.has(alertKey)) return;
-
-                const [y, m, d] = person.nextDate.split('-');
-                const localNextDate = new Date(y, m - 1, d);
-                localNextDate.setHours(0, 0, 0, 0);
-                
-                const diffTime = localNextDate - today;
-                const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-                
-                if (diffDays <= 0) {
-                    const isToday = diffDays === 0;
-                    const accentColor = isToday ? '#ff4d4d' : '#475569'; // Red for today, grayish for dead
-                    const bgOverlay = isToday ? 'rgba(30, 41, 59, 0.95)' : 'rgba(15, 23, 42, 0.95)'; // Darker bg for dead
-                    const deadStyle = isToday ? '' : 'opacity: 0.7; filter: grayscale(100%); text-decoration: line-through;';
-                    const iconName = isToday ? 'alert-circle' : 'skull';
-                    
-                    toastsHtml += `
-                        <div class="toast-item" data-alert-key="${alertKey}" style="pointer-events: auto; background: ${bgOverlay}; backdrop-filter: blur(10px); padding: 15px; border-radius: 8px; border-left: 4px solid ${accentColor}; box-shadow: 0 10px 25px rgba(0,0,0,0.5); display: flex; align-items: flex-start; gap: 12px; min-width: 300px; max-width: 350px; animation: slideInRight 0.3s ease forwards;">
-                            <div style="color: ${accentColor}; margin-top: 2px;">
-                                <i data-lucide="${iconName}" style="width: 20px; height: 20px;"></i>
-                            </div>
-                            <div style="flex: 1;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                                    <span style="font-size: 0.8rem; font-weight: bold; color: ${accentColor}; text-transform: uppercase; letter-spacing: 1px;">${isToday ? '¡PARA HOY!' : 'VENCIDA (MUERTA)'}</span>
-                                    <button class="dismiss-toast-btn" style="background: none; border: none; color: #a0aec0; cursor: pointer; padding: 0; transition: color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#a0aec0'"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
-                                </div>
-                                <div style="font-weight: 600; color: #fff; font-size: 1rem; margin-bottom: 4px; ${deadStyle}">${person.name}</div>
-                                <div style="font-size: 0.85rem; color: #cbd5e1; ${deadStyle}">Obs: ${person.observation || 'Ninguna'}</div>
-                            </div>
-                        </div>
-                    `;
-                }
-            }
-        });
-        
-        toastContainer.innerHTML = toastsHtml;
-        
-        toastContainer.querySelectorAll('.dismiss-toast-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const toast = e.target.closest('.toast-item');
-                const key = toast.dataset.alertKey;
-                dismissedAlerts.add(key);
-                toast.style.animation = 'fadeOutRight 0.3s ease forwards';
-                setTimeout(() => toast.remove(), 300);
-            });
-        });
-    }
+    renderVencimientos();
 
     lucide.createIcons();
     attachPeopleEvents();
+};
+
+// Inicio: a quién le vence algo. El tamaño del punto dice cuánto urge.
+const renderVencimientos = () => {
+    const lista = document.getElementById('venceLista');
+    if (!lista) return;
+
+    const [ya, ma, da] = hoyLocal().split('-').map(Number);
+    const hoy = new Date(ya, ma - 1, da);
+    const filas = state.people
+        .filter(p => p.nextDate && (p.name || '').trim())
+        .map(p => {
+            const [y, m, d] = p.nextDate.split('-').map(Number);
+            return { p, dias: Math.round((new Date(y, m - 1, d) - hoy) / 86400000) };
+        })
+        .sort((a, b) => a.dias - b.dias);
+
+    const cuando = (d) => {
+        if (d === 0) return 'Hoy';
+        if (d === 1) return 'Mañana';
+        if (d > 1) return `En ${d} días`;
+        return d === -1 ? 'Ayer' : `Hace ${-d} días`;
+    };
+    const fila = ({ p, dias }, magnitud) => `
+        <li class="vence-fila" data-magnitud="${magnitud}">
+            <span class="vence-punto" aria-hidden="true"></span>
+            <div class="vence-quien">
+                <strong>${esc(p.name)}</strong>
+                <span>${[p.matricula ? `Matrícula ${esc(p.matricula)}` : '', esc(p.observation)].filter(Boolean).join(' · ')}</span>
+            </div>
+            <div class="vence-cuando"><strong>${cuando(dias)}</strong><span>${formatDateOnly(p.nextDate)}</span></div>
+            <div class="vence-acciones">
+                <input type="date" class="vence-fecha" data-id="${p.id}" value="${esc(p.nextDate)}" aria-label="Cambiar fecha de ${esc(p.name)}">
+                <button class="btn btn-outline btn-sm vence-cuenta" type="button" data-name="${esc(p.name)}">Ver cuenta</button>
+            </div>
+        </li>`;
+    const grupo = (titulo, items, magnitud) => items.length === 0 ? '' : `
+        <div class="vence-grupo">
+            <h3 class="vence-grupo-titulo">${titulo}</h3>
+            <ul class="vence-lista">${items.map(i => fila(i, magnitud)).join('')}</ul>
+        </div>`;
+
+    const hoyItems = filas.filter(f => f.dias === 0);
+    const pronto = filas.filter(f => f.dias >= 1 && f.dias <= 3);
+    const semana = filas.filter(f => f.dias >= 4 && f.dias <= 7);
+    const vencidas = filas.filter(f => f.dias < 0).reverse();
+
+    let html = grupo('Vencen hoy', hoyItems, 'hoy') + grupo('Próximos 3 días', pronto, 'pronto') + grupo('Esta semana', semana, 'semana');
+    if (!html) html = '<p class="vence-vacio">No vence nada en los próximos 7 días.</p>';
+    if (vencidas.length > 0) {
+        html += `
+        <details class="vence-vencidas"${vencidasAbiertas ? ' open' : ''}>
+            <summary>Ya vencidas (${vencidas.length})</summary>
+            <ul class="vence-lista">${vencidas.map(i => fila(i, 'vencida')).join('')}</ul>
+        </details>`;
+    }
+    lista.innerHTML = html;
+    const detalles = lista.querySelector('details');
+    if (detalles) detalles.addEventListener('toggle', () => { vencidasAbiertas = detalles.open; });
+
+    const titular = document.getElementById('venceTitular');
+    const urgentes = hoyItems.length + pronto.length;
+    if (titular) {
+        if (hoyItems.length > 0) {
+            titular.textContent = `Hoy vence${hoyItems.length === 1 ? '' : 'n'} ${hoyItems.length}` + (pronto.length ? `, y ${pronto.length} en los próximos 3 días` : '');
+        } else if (pronto.length > 0) {
+            titular.textContent = `Nada vence hoy. ${pronto.length} en los próximos 3 días`;
+        } else {
+            titular.textContent = 'Nada urgente por vencer';
+        }
+    }
+    const cuenta = document.getElementById('navBadge');
+    if (cuenta) {
+        cuenta.textContent = urgentes;
+        cuenta.hidden = urgentes === 0;
+    }
+    if ('setAppBadge' in navigator) (urgentes > 0 ? navigator.setAppBadge(urgentes) : navigator.clearAppBadge()).catch(() => {});
 };
 
 // --- Cálculos Matemáticos ---
@@ -1061,7 +1104,7 @@ const autoAllocateExpenses = (totalIncomeAvailable) => {
     state.expenses.forEach(exp => {
         const amountRequired = parseFloat(exp.amount || 0);
 
-        if (remainingIncome >= amountRequired) {
+        if (amountRequired > 0 && remainingIncome >= amountRequired) {
             // Can fully cover this expense
             exp.process = amountRequired;
             exp.status = "Pagado";
@@ -1158,8 +1201,12 @@ const calculateSummary = () => {
     diffEl.textContent = formatCurrency(totalDiferencia);
     diffEl.parentElement.className = totalDiferencia >= 0 ? 'metric-card success' : 'metric-card danger';
 
-    // Annual (mensual * 12 or sum of all months)
-    const gananciaAnual = gananciaGeneradaMensual * 12; // Simple projection
+    // Lo realmente cobrado en el año (antes era el mes actual multiplicado por 12)
+    const gananciaAnual = state.people.reduce((total, p) => total + (Array.isArray(p.payments)
+        ? p.payments.reduce((sum, pago) => (
+            pago.date && new Date(pago.date).getFullYear() === currentYearNum ? sum + parseFloat(pago.amount || 0) : sum
+        ), 0)
+        : 0), 0);
     document.getElementById('annualGenerated').textContent = formatCurrency(gananciaAnual);
 
     // Meta Progress
@@ -1177,9 +1224,13 @@ const calculateSummary = () => {
         const payers = state.people.map(p => {
             let total = 0;
             if (Array.isArray(p.payments)) {
-                total = p.payments.reduce((sum, payment) => sum + parseFloat(payment.amount), 0);
-            } else {
-                total = parseFloat(p.lastPayment || 0); // fallback legacy
+                // Solo lo pagado en el mes elegido
+                total = p.payments.reduce((sum, payment) => {
+                    if (!payment.date) return sum;
+                    const pd = new Date(payment.date);
+                    return pd.getMonth() + 1 === currentMonthNum && pd.getFullYear() === currentYearNum
+                        ? sum + parseFloat(payment.amount || 0) : sum;
+                }, 0);
             }
             return { name: p.name, total: total };
         }).filter(p => p.total > 0); // Solo los que han pagado algo
@@ -1197,7 +1248,7 @@ const calculateSummary = () => {
                 html += `
                     <tr>
                         <td class="text-center"><i data-lucide="${index < 3 ? 'medal' : 'minus'}" style="width:16px; height:16px; color: ${medalColor}"></i><span style="display:none;">${index + 1}</span></td>
-                        <td style="font-weight: 500;">${p.name.length > 20 ? p.name.substring(0, 20) + '...' : p.name}</td>
+                        <td style="font-weight: 500;">${esc(p.name.length > 20 ? p.name.substring(0, 20) + '...' : p.name)}</td>
                         <td class="text-right text-success" style="font-weight: 600;">${formatCurrency(p.total)}</td>
                     </tr>
                 `;
@@ -1211,10 +1262,6 @@ const calculateSummary = () => {
     // Calcular y renderizar Deudores (Pendientes de Pago)
     const pendingBalancesBody = document.getElementById('pendingBalancesBody');
     if (pendingBalancesBody) {
-        const normalizeString = (str) => {
-            if (!str) return '';
-            return str.toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
-        };
 
         // 1. Crear grupos canónicos basados en las personas existentes
         const canonicalGroups = {}; // Key: normalized, Value: { nameDisplay, totalPaid, matricula }
@@ -1224,9 +1271,7 @@ const calculateSummary = () => {
             if (!normalized) return;
 
             // Buscar si ya existe un grupo que sea subcadena o supercadena (ej. "Ana" y "Ana Martinez")
-            let foundKey = Object.keys(canonicalGroups).find(k => 
-                normalized.includes(k) || k.includes(normalized)
-            );
+            let foundKey = Object.keys(canonicalGroups).find(k => mismaPersona(normalized, k));
 
             const pPaid = Array.isArray(p.payments) 
                 ? p.payments.reduce((s, pay) => s + parseFloat(pay.amount), 0) 
@@ -1256,9 +1301,7 @@ const calculateSummary = () => {
             const normTaskName = normalizeString(t.name);
 
             // Encontrar el mejor grupo canónico para esta tarea
-            let bestKey = Object.keys(canonicalGroups).find(k => 
-                normTaskName.includes(k) || k.includes(normTaskName)
-            );
+            let bestKey = Object.keys(canonicalGroups).find(k => mismaPersona(normTaskName, k));
 
             if (!bestKey) {
                 // Si la persona no está en la lista de personas, creamos un grupo temporal
@@ -1295,12 +1338,12 @@ const calculateSummary = () => {
             debtors.forEach(d => {
                 html += `
                     <tr>
-                        <td style="font-weight: 500;">${d.nameDisplay.length > 20 ? d.nameDisplay.substring(0, 20) + '...' : d.nameDisplay}</td>
+                        <td style="font-weight: 500;">${esc(d.nameDisplay.length > 20 ? d.nameDisplay.substring(0, 20) + '...' : d.nameDisplay)}</td>
                         <td class="text-right text-danger" style="font-weight: 600;">${formatCurrency(d.pending)}</td>
                         <td class="text-center">
                              <button class="btn btn-outline btn-sm print-debtor-btn" 
-                                     data-name="${d.nameDisplay}" 
-                                     data-mat="${d.matricula}"
+                                     data-name="${esc(d.nameDisplay)}" 
+                                     data-mat="${esc(d.matricula)}"
                                      data-total="${d.taskTotal}"
                                      data-paid="${d.paidTotal}"
                                      data-pending="${d.pending}"
@@ -1373,16 +1416,13 @@ const generatePDFReceipt = (clientName, matDisplay, totalGen, totalAbonado, tota
     yPos += 10;
 
     // Func para normalizar
-    const normalizeString = (str) => {
-        return str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : '';
-    };
     const searchTarget = normalizeString(queryNameForHistory);
 
     // Extraer historial de `state.tasks`
     const rows = [];
     const sortedTasks = [...state.tasks].sort((a, b) => new Date(b.date) - new Date(a.date));
     sortedTasks.forEach(t => {
-        if (normalizeString(t.name).includes(searchTarget)) {
+        if (mismaPersona(normalizeString(t.name), searchTarget)) {
             const dStr = formatDateOnly(t.date);
             rows.push([
                 dStr,
@@ -1564,13 +1604,13 @@ const setupTaskEventListeners = () => {
             document.getElementById('searchTotalAmount').textContent = formatCurrency(0);
             document.getElementById('searchPaidAmount').textContent = formatCurrency(0);
             document.getElementById('searchPersonInfo').style.display = 'none';
+            // Sin esto el botón Abonar seguía apuntando a la persona de la búsqueda anterior
+            const seccionAbono = document.getElementById('paymentSection');
+            seccionAbono.style.display = 'none';
+            delete seccionAbono.dataset.personId;
             return;
         }
 
-        const normalizeString = (str) => {
-            if (!str) return '';
-            return str.toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
-        };
         const queryNormalized = normalizeString(query);
 
         // 1. Encontrar a la persona con nombre más similar en la lista de Personas
@@ -1581,7 +1621,9 @@ const setupTaskEventListeners = () => {
 
         let bestPerson = null;
         if (matches.length > 0) {
-            bestPerson = matches.reduce((prev, curr) => curr.name.length > prev.name.length ? curr : prev);
+            bestPerson = matches.find(p => normalizeString(p.name) === queryNormalized)
+                || matches.find(p => mismaPersona(normalizeString(p.name), queryNormalized))
+                || matches.reduce((prev, curr) => curr.name.length > prev.name.length ? curr : prev);
         }
 
         // Si encontramos a la persona, usamos su nombre canónico para buscar tareas y pagos
@@ -1593,7 +1635,7 @@ const setupTaskEventListeners = () => {
         sortedTasks.forEach(t => {
             const normTask = normalizeString(t.name);
             // Misma lógica de cruce que en "Pendientes de Pago"
-            if (normTask.includes(searchTargetNormalized) || searchTargetNormalized.includes(normTask)) {
+            if (bestPerson ? mismaPersona(normTask, searchTargetNormalized) : normTask.includes(searchTargetNormalized)) {
                 total += parseFloat(t.amount || 0);
                 foundTasks = true;
 
@@ -1603,7 +1645,7 @@ const setupTaskEventListeners = () => {
                 htmlRows += `
                     <tr>
                         <td>${dateStr}</td>
-                        <td title="${t.assignment}">${t.assignment.length > 30 ? t.assignment.substring(0, 30) + '...' : t.assignment}</td>
+                        <td title="${esc(t.assignment)}">${esc(t.assignment.length > 30 ? t.assignment.substring(0, 30) + '...' : t.assignment)}</td>
                         <td class="text-success">${formatCurrency(parseFloat(t.amount || 0))}</td>
                         <td style="display: flex; gap: 0.25rem; justify-content: flex-end;">
                             <button class="btn btn-outline btn-sm edit-task-btn" data-id="${t.id}" style="padding: 0.4rem; border-color: var(--primary); color: var(--primary);" title="Editar Tarea"><i data-lucide="edit-2"></i></button>
@@ -1716,7 +1758,7 @@ const setupTaskEventListeners = () => {
 
         const clientName = document.getElementById('searchPersonInfo').style.display !== 'none' ? nameDisplay : query.toUpperCase();
 
-        generatePDFReceipt(clientName, matDisplay, totalGen, totalAbonado, totalPendiente, query);
+        generatePDFReceipt(clientName, matDisplay, totalGen, totalAbonado, totalPendiente, clientName);
     });
 
     // 2.0.1 Imprimir Factura a Deudores desde el Resumen
@@ -2214,7 +2256,7 @@ const setupPeopleFilters = () => {
             const displayVal = col === 'nextDate' ? formatDateFriendly(val) : (val === '' ? '(Vacías)' : val);
 
             labelEl.innerHTML = `
-                <input type="checkbox" value="${val}" ${isChecked ? 'checked' : ''}>
+                <input type="checkbox" value="${esc(val)}" ${isChecked ? 'checked' : ''}>
                 <span>${displayVal}</span>
             `;
             list.appendChild(labelEl);
@@ -2343,11 +2385,35 @@ const attachPeopleEvents = () => {
         btn.addEventListener('click', (e) => {
             const btnEl = e.target.closest('button');
             const id = parseFloat(btnEl.dataset.id);
+            const persona = state.people.find(x => x.id === id);
+            const pagos = persona && Array.isArray(persona.payments) ? persona.payments.length : 0;
+            const aviso = pagos > 0
+                ? `Esta persona tiene ${pagos} pago(s) registrado(s). Si la eliminas se pierden y sus tareas volverán a aparecer como deuda. ¿Eliminarla?`
+                : '¿Eliminar esta persona?';
+            if (!confirm(aviso)) return;
             state.people = state.people.filter(x => x.id !== id);
             saveData();
             renderPeople();
         });
     });
 };
+
+
+// Acciones del panel de Vencimientos
+document.addEventListener('change', (e) => {
+    if (!e.target.classList.contains('vence-fecha')) return;
+    const persona = state.people.find(p => p.id === parseFloat(e.target.dataset.id));
+    if (!persona || !e.target.value) return;
+    persona.nextDate = e.target.value;
+    saveData();
+    renderPeople();
+});
+document.addEventListener('click', (e) => {
+    const boton = e.target.closest('.vence-cuenta');
+    if (!boton) return;
+    document.getElementById('searchPerson').value = boton.dataset.name;
+    document.getElementById('btnSearch').click();
+    location.hash = 'tareas';
+});
 
 init();

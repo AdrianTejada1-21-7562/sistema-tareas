@@ -1,0 +1,29 @@
+name: Avisos de vencimientos
+
+on:
+  schedule:
+    - cron: '0 12 * * *' # 8:00 a. m. en República Dominicana (GitHub puede retrasarlo un poco)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  avisar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-save --no-package-lock web-push@3.6.7
+      - run: node .github/avisos/enviar.mjs
+        env:
+          VAPID_PRIVADA: ${{ secrets.VAPID_PRIVADA }}
+      # GitHub apaga las tareas programadas tras 60 días sin actividad en el repositorio.
+      - name: Mantener activo el aviso diario
+        if: always()
+        run: gh api --method PUT "repos/${{ github.repository }}/actions/workflows/avisos.yml/enable" || true
+        env:
+          GH_TOKEN: ${{ github.token }}
