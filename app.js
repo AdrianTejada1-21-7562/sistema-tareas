@@ -112,9 +112,47 @@ const init = async () => {
 
 let cloudSyncTimeout = null;
 
+// --- Varios dispositivos y sin internet ---
+// "Pendiente" = hay cambios en este dispositivo que la nube aún no tiene.
+// "Base" = la última copia que este dispositivo y la nube tuvieron en común; permite saber
+// qué cambió cada lado y unirlos en vez de que uno borre lo del otro.
+const CLAVE_PENDIENTE = 'sistemaTareasPendiente';
+const CLAVE_BASE = 'sistemaTareasBase';
+const LISTAS_DE_DATOS = ['tasks', 'capitalSources', 'borrowers', 'loans', 'loanPayments', 'debts', 'debtPayments', 'expenses', 'people'];
+let versionLocal = 0;
+let ultimoEnvio = null;
+let ultimaDescarga = 0;
+
+const hayCambiosSinSubir = () => localStorage.getItem(CLAVE_PENDIENTE) === '1';
+
+// Une una lista por id. Si ambos lados editaron el mismo registro gana el de este dispositivo;
+// si un lado lo borró y el otro lo editó, se conserva, para no perder nunca un dato editado.
+const combinarLista = (base = [], local = [], nube = []) => {
+    const porId = (lista) => new Map(lista.map(x => [x.id, x]));
+    const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const B = porId(base), L = porId(local), N = porId(nube);
+    const resultado = [];
+    nube.forEach(n => {
+        const b = B.get(n.id), l = L.get(n.id);
+        if (!l) {
+            if (!(b && igual(b, n))) resultado.push(n); // nuevo o editado en la nube
+        } else {
+            resultado.push(b && igual(b, l) ? n : l);
+        }
+    });
+    local.forEach(l => {
+        if (N.has(l.id)) return;
+        const b = B.get(l.id);
+        if (!b || !igual(b, l)) resultado.push(l); // nuevo o editado aquí
+    });
+    return resultado;
+};
+
 const saveData = () => {
     // Lo local (lo que ves en pantalla) siempre es instantáneo, nunca espera a la nube.
     localStorage.setItem('sistemaTareasData', JSON.stringify(state));
+    versionLocal++;
+    localStorage.setItem(CLAVE_PENDIENTE, '1');
     calculateSummary();
 
     if (WEB_APP_URL) {
@@ -146,10 +184,18 @@ window.addEventListener('pagehide', () => {
 });
 
 const syncToCloud = () => {
+    cloudSyncTimeout = null;
     const statusEl = document.getElementById('syncStatus');
     statusEl.className = 'sync-status sync-loading';
     statusEl.innerHTML = '<i data-lucide="refresh-cw"></i> Guardando...';
     lucide.createIcons();
+
+    if (!navigator.onLine) {
+        statusEl.className = 'sync-status sync-error';
+        statusEl.innerHTML = '<i data-lucide="cloud-off"></i> Sin internet: se subirá al volver';
+        lucide.createIcons();
+        return;
+    }
 
     // Eliminar script anterior si existe
     const oldScript = document.getElementById('jsonp-sync');
@@ -158,6 +204,7 @@ const syncToCloud = () => {
     // Convertir estado a string codificado
     const jsonData = JSON.stringify(state);
     const payload = encodeURIComponent(jsonData);
+    ultimoEnvio = { version: versionLocal, json: jsonData };
 
     // Si la URL es muy larga (más de 2000 caracteres), el método GET por script.src fallará
     // Preferimos usar fetch con POST como la vía principal ya que los datos de la app crecen
@@ -171,7 +218,7 @@ const syncToCloud = () => {
     })
         .then(response => {
             // En modo cors normal leeríamos esto, si Apps Script lo permite
-            window.handleDriveSyncResponse({ success: true });
+            window.handleDriveSyncResponse({ success: response.ok });
         })
         .catch(err => {
             console.error("Error en POST sync (puede ser CORS normal):", err);
@@ -190,6 +237,11 @@ const syncToCloud = () => {
 window.handleDriveSyncResponse = function (response) {
     const statusEl = document.getElementById('syncStatus');
     if (response && response.success) {
+        if (ultimoEnvio) {
+            localStorage.setItem(CLAVE_BASE, ultimoEnvio.json);
+            // Si editaste mientras se subía, sigue pendiente lo más nuevo.
+            if (ultimoEnvio.version === versionLocal) localStorage.removeItem(CLAVE_PENDIENTE);
+        }
         statusEl.className = 'sync-status sync-success';
         statusEl.innerHTML = '<i data-lucide="cloud-check"></i> Sincronizado';
     } else {
@@ -201,6 +253,10 @@ window.handleDriveSyncResponse = function (response) {
 
 const loadFromCloud = () => {
     return new Promise((resolve) => {
+        // Evitar múltiples llamadas simultáneas
+        if (window.isSyncing) return resolve();
+        window.isSyncing = true;
+
         const statusEl = document.getElementById('syncStatus');
         statusEl.className = 'sync-status sync-loading';
         statusEl.innerHTML = '<i data-lucide="refresh-cw"></i> Descargando...';
@@ -208,6 +264,7 @@ const loadFromCloud = () => {
 
         // Timeout proxy
         const timeout = setTimeout(() => {
+            window.isSyncing = false;
             if (statusEl.className.includes('sync-loading')) {
                 statusEl.className = 'sync-status sync-error';
                 statusEl.innerHTML = '<i data-lucide="cloud-off"></i> Fallo de conexión (Timeout)';
@@ -216,16 +273,19 @@ const loadFromCloud = () => {
             resolve();
         }, 15000); // Aumentado a 15 segundos permitiendo respuestas lentas de Apps Script
 
-        // Evitar múltiples llamadas simultáneas
-        if (window.isSyncing) return resolve();
-        window.isSyncing = true;
-
         // Callback Global para Carga
         window.handleDriveLoadResponse = function (data) {
             window.isSyncing = false;
             clearTimeout(timeout);
             try {
                 if (data && data.tasks) {
+                    ultimaDescarga = Date.now();
+                    const antes = JSON.stringify(state);
+                    const pendiente = hayCambiosSinSubir();
+                    const copiaLocal = JSON.parse(antes);
+                    let base = {};
+                    try { base = JSON.parse(localStorage.getItem(CLAVE_BASE)) || {}; } catch (e) { base = {}; }
+
                     // Merge data carefully so we don't lose local defaults if Drive file is newly created
                     state.tasks = data.tasks || [];
                     state.capitalSources = data.capitalSources || [];
@@ -239,16 +299,30 @@ const loadFromCloud = () => {
                     if (data.goal) state.goal = data.goal;
                     if (data.currentMonth) state.currentMonth = data.currentMonth;
 
+                    localStorage.setItem(CLAVE_BASE, JSON.stringify(state));
+                    if (pendiente) {
+                        // Hay cambios hechos aquí que la nube no tiene: se unen, no se pisan.
+                        LISTAS_DE_DATOS.forEach(k => { state[k] = combinarLista(base[k], copiaLocal[k], state[k]); });
+                        if (copiaLocal.goal !== base.goal) state.goal = copiaLocal.goal;
+                        if (copiaLocal.currentMonth !== base.currentMonth) state.currentMonth = copiaLocal.currentMonth;
+                    }
+
                     localStorage.setItem('sistemaTareasData', JSON.stringify(state));
                     const monthSelector = document.getElementById('monthSelector');
                     if (monthSelector) monthSelector.value = state.currentMonth;
                     const tasksGoal = document.getElementById('tasksGoal');
                     if (tasksGoal) tasksGoal.value = state.goal;
 
-                    renderAll();
+                    // Si nada cambió no se redibuja, para no sacarte del campo que estés escribiendo.
+                    if (JSON.stringify(state) !== antes) renderAll();
 
                     statusEl.className = 'sync-status sync-success';
                     statusEl.innerHTML = '<i data-lucide="cloud-check"></i> Drive Conectado';
+
+                    if (pendiente) {
+                        clearTimeout(cloudSyncTimeout);
+                        syncToCloud();
+                    }
                 } else if (data && data.empty) {
                     // Si Drive responde que está vacío, empujamos los datos locales para inicializarlo
                     statusEl.className = 'sync-status sync-loading';
@@ -270,6 +344,7 @@ const loadFromCloud = () => {
         const script = document.createElement('script');
         script.src = `${WEB_APP_URL}?action=load&callback=handleDriveLoadResponse`;
         script.onerror = () => {
+            window.isSyncing = false;
             clearTimeout(timeout);
             statusEl.className = 'sync-status sync-error';
             statusEl.innerHTML = '<i data-lucide="cloud-off"></i> Usando datos locales';
@@ -279,6 +354,17 @@ const loadFromCloud = () => {
         document.body.appendChild(script);
     });
 };
+
+// Al volver internet sube lo pendiente; al volver a la app (que en el teléfono queda abierta
+// en segundo plano) baja lo último, para no editar sobre datos viejos.
+const refrescarDesdeNube = () => {
+    if (!WEB_APP_URL || !navigator.onLine || cloudSyncTimeout) return;
+    loadFromCloud();
+};
+window.addEventListener('online', refrescarDesdeNube);
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && Date.now() - ultimaDescarga > 30000) refrescarDesdeNube();
+});
 
 const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(amount) || 0);
