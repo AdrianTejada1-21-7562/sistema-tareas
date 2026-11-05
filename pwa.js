@@ -40,7 +40,7 @@
                 registrarTelefono(sub);
                 boton.hidden = true;
                 reg.showNotification('Avisos activados', {
-                    body: 'Te avisaremos cada mañana de lo que esté próximo a vencer.',
+                    body: 'Te avisaremos varias veces al día de lo vencido y lo próximo a vencer.',
                     icon: 'icons/icon-192.png'
                 });
             } catch (err) {

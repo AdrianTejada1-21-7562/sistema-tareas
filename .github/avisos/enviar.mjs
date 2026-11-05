@@ -1,4 +1,4 @@
-// Corre una vez al día en GitHub Actions: busca a quién le vence algo en los próximos días
+// Corre varias veces al día en GitHub Actions: busca lo vencido y lo que vence en los próximos días
 // y manda el aviso a cada teléfono registrado.
 // El repositorio es público y sus registros también: nunca imprimir nombres ni datos aquí.
 import { readFileSync } from 'node:fs';
@@ -18,23 +18,36 @@ const diasEntre = (desde, hasta) => {
     return Math.round((dia(hasta) - dia(desde)) / 86400000);
 };
 
-// Personas a las que les vence algo hoy o en los próximos días (no las ya vencidas).
+// Lo vencido (sin límite de antigüedad), lo de hoy y lo de los próximos días; lo más atrasado primero.
 export const proximos = (personas, hoy, dias = DIAS_DE_AVISO) =>
     (personas || [])
         .filter(p => /^\d{4}-\d{2}-\d{2}$/.test(p.nextDate || ''))
         .map(p => ({ nombre: (p.name || '').trim() || 'Sin nombre', dias: diasEntre(hoy, p.nextDate) }))
-        .filter(p => p.dias >= 0 && p.dias <= dias)
+        .filter(p => p.dias <= dias)
         .sort((a, b) => a.dias - b.dias || a.nombre.localeCompare(b.nombre));
 
-const cuando = (d) => (d === 0 ? 'hoy' : d === 1 ? 'mañana' : `en ${d} días`);
+const cuando = (d) => {
+    if (d < -1) return `VENCIDA hace ${-d} días`;
+    if (d === -1) return 'VENCIDA ayer';
+    if (d === 0) return 'vence HOY';
+    return d === 1 ? 'mañana' : `en ${d} días`;
+};
+
+const titular = (lista) => {
+    const vencidas = lista.filter(p => p.dias < 0).length;
+    const hoy = lista.filter(p => p.dias === 0).length;
+    if (vencidas > 0) return `SUPER URGENTE: ${vencidas} ${vencidas === 1 ? 'vencida' : 'vencidas'}`;
+    if (hoy > 0) return `URGENTE: ${hoy} ${hoy === 1 ? 'vence' : 'vencen'} hoy`;
+    return lista.length === 1 ? '1 próxima a vencer' : `${lista.length} próximas a vencer`;
+};
 
 export const armarAviso = (lista, hoy) => {
     const lineas = lista.slice(0, MAX_LINEAS).map(p => `${p.nombre}: ${cuando(p.dias)}`);
     if (lista.length > MAX_LINEAS) lineas.push(`y ${lista.length - MAX_LINEAS} más`);
     return {
-        titulo: lista.length === 1 ? '1 próxima a vencer' : `${lista.length} próximas a vencer`,
+        titulo: titular(lista),
         cuerpo: lineas.join('\n'),
-        tag: `vencimientos-${hoy}`,
+        tag: 'vencimientos', // el aviso nuevo reemplaza al anterior y vuelve a sonar
         url: 'index.html'
     };
 };
@@ -64,13 +77,13 @@ const principal = async () => {
     const hoy = hoyEnRD();
     const lista = proximos(datos.people, hoy);
     const telefonos = datos.pushSubs || [];
-    console.log(`Próximas a vencer: ${lista.length}. Teléfonos registrados: ${telefonos.length}.`);
+    console.log(`Para avisar: ${lista.length}. Teléfonos registrados: ${telefonos.length}.`);
     if (lista.length === 0 || telefonos.length === 0) return;
 
     webpush.setVapidDetails('https://adriantejada1-21-7562.github.io/sistema-tareas/', publica, privada);
     const aviso = JSON.stringify(armarAviso(lista, hoy));
     const resultados = await Promise.allSettled(telefonos.map(t =>
-        webpush.sendNotification({ endpoint: t.id, keys: t.keys }, aviso, { TTL: 86400, urgency: 'high' })));
+        webpush.sendNotification({ endpoint: t.id, keys: t.keys }, aviso, { TTL: 14400, urgency: 'high' })));
 
     const fallos = resultados.filter(r => r.status === 'rejected');
     // 404/410 = ese teléfono ya no existe (reinstalación); no es un error del envío.

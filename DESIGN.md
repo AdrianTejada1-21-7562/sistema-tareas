@@ -13,7 +13,7 @@ Inter en una sola familia, con cifras tabulares en toda la app. Títulos de 1 a 
 
 ## Componentes
 - Paneles sin sombra ni borde, radio de 12 px. Las cuentas son etiqueta y cifra separadas por una línea fina, como en una libreta.
-- El tamaño del punto dice cuánto urge un vencimiento: 14 px hoy, 10 px en 3 días, 6 px esta semana y aro vacío si ya venció.
+- El tamaño del punto dice cuánto urge un vencimiento: 18 px si ya venció (SUPER URGENTE, siempre visible y arriba), 14 px hoy, 10 px en 3 días y 6 px esta semana.
 - Botón principal amarillo con texto oscuro; secundario con contorno. Sin animaciones de entrada; transiciones de 150 a 250 ms solo para estados.
 
 ## Estructura

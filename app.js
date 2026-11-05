@@ -32,7 +32,6 @@ let state = {
 let editingTaskId = null; // Para editar tareas
 
 // --- Runtime UI State ---
-let vencidasAbiertas = false;
 let expandedDebtors = new Set();
 let expandedPools = new Set();
 let expandedPoolBorrowers = new Set(); // claves: `${capitalSourceId}:${borrowerId}`
@@ -1063,25 +1062,19 @@ const renderVencimientos = () => {
     const hoyItems = filas.filter(f => f.dias === 0);
     const pronto = filas.filter(f => f.dias >= 1 && f.dias <= 3);
     const semana = filas.filter(f => f.dias >= 4 && f.dias <= 7);
-    const vencidas = filas.filter(f => f.dias < 0).reverse();
+    const vencidas = filas.filter(f => f.dias < 0);
 
-    let html = grupo('Vencen hoy', hoyItems, 'hoy') + grupo('Próximos 3 días', pronto, 'pronto') + grupo('Esta semana', semana, 'semana');
-    if (!html) html = '<p class="vence-vacio">No vence nada en los próximos 7 días.</p>';
-    if (vencidas.length > 0) {
-        html += `
-        <details class="vence-vencidas"${vencidasAbiertas ? ' open' : ''}>
-            <summary>Ya vencidas (${vencidas.length})</summary>
-            <ul class="vence-lista">${vencidas.map(i => fila(i, 'vencida')).join('')}</ul>
-        </details>`;
-    }
-    lista.innerHTML = html;
-    const detalles = lista.querySelector('details');
-    if (detalles) detalles.addEventListener('toggle', () => { vencidasAbiertas = detalles.open; });
+    const html = grupo('Ya vencidas', vencidas, 'vencida')
+        + grupo('Vencen hoy', hoyItems, 'hoy') + grupo('Próximos 3 días', pronto, 'pronto') + grupo('Esta semana', semana, 'semana');
+    lista.innerHTML = html || '<p class="vence-vacio">No vence nada en los próximos 7 días.</p>';
 
     const titular = document.getElementById('venceTitular');
-    const urgentes = hoyItems.length + pronto.length;
+    const urgentes = vencidas.length + hoyItems.length + pronto.length;
     if (titular) {
-        if (hoyItems.length > 0) {
+        titular.classList.toggle('vence-titular-urgente', vencidas.length > 0);
+        if (vencidas.length > 0) {
+            titular.textContent = `SUPER URGENTE: ${vencidas.length} ${vencidas.length === 1 ? 'vencida' : 'vencidas'}`;
+        } else if (hoyItems.length > 0) {
             titular.textContent = `Hoy vence${hoyItems.length === 1 ? '' : 'n'} ${hoyItems.length}` + (pronto.length ? `, y ${pronto.length} en los próximos 3 días` : '');
         } else if (pronto.length > 0) {
             titular.textContent = `Nada vence hoy. ${pronto.length} en los próximos 3 días`;

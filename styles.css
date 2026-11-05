@@ -171,28 +171,20 @@ main { max-width: 1240px; }
 .vence-fila[data-magnitud="hoy"] .vence-punto { width: 14px; height: 14px; background: var(--danger); }
 .vence-fila[data-magnitud="pronto"] .vence-punto { width: 10px; height: 10px; }
 .vence-fila[data-magnitud="semana"] .vence-punto { width: 6px; height: 6px; background: var(--text-muted); }
-.vence-fila[data-magnitud="vencida"] .vence-punto { width: 6px; height: 6px; background: transparent; box-shadow: inset 0 0 0 1px var(--text-muted); }
+.vence-fila[data-magnitud="vencida"] .vence-punto { width: 18px; height: 18px; background: var(--danger); }
 .vence-quien { min-width: 0; }
 .vence-quien strong { display: block; font-weight: 600; overflow-wrap: anywhere; }
 .vence-quien span { display: block; color: var(--text-muted); font-size: 0.82rem; overflow-wrap: anywhere; }
 .vence-cuando strong { display: block; font-weight: 600; }
 .vence-fila[data-magnitud="hoy"] .vence-cuando strong { color: var(--danger); }
 .vence-fila[data-magnitud="pronto"] .vence-cuando strong { color: var(--warning); }
-.vence-fila[data-magnitud="vencida"] .vence-quien strong,
-.vence-fila[data-magnitud="vencida"] .vence-cuando strong { color: var(--text-muted); font-weight: 500; }
+.vence-fila[data-magnitud="vencida"] .vence-cuando strong { color: var(--danger); font-weight: 700; }
+.vence-titular-urgente { color: var(--danger); }
+.vence-grupo:has([data-magnitud="vencida"]) .vence-grupo-titulo { color: var(--danger); font-weight: 700; border-bottom-color: var(--danger); }
 .vence-cuando span { color: var(--text-muted); font-size: 0.82rem; }
 .vence-acciones { display: flex; align-items: center; gap: 0.5rem; }
 .vence-acciones input { padding: 0.35rem 0.5rem; font-size: 0.85rem; width: 9.5rem; }
 .vence-vacio { color: var(--text-muted); padding: 0.25rem 0; }
-.vence-vencidas { margin-top: 1.1rem; }
-.vence-vencidas summary {
-    cursor: pointer;
-    color: var(--text-muted);
-    font-size: 0.85rem; font-weight: 600;
-    padding: 0.5rem 0;
-    min-height: 44px; display: flex; align-items: center;
-}
-.vence-vencidas summary:hover { color: var(--text-main); }
 
 /* --- Cuentas: etiqueta y cifra, como en una libreta --- */
 .cuentas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1.5rem; }
@@ -443,42 +435,79 @@ tr.row-success { background: rgba(127, 214, 160, 0.06); }
     .tabla-acotada { max-height: none; }
     .tabla-ancha .data-table, .tabla-deudas .data-table { min-width: 540px; }
 
-    /* Gastos y Personas: cada fila es una ficha */
+    /* Gastos y Personas: cada fila es una tarjeta separada, con el nombre arriba */
+    .panel:has(#peopleTable), .panel:has(#expensesTable) { background: transparent; padding: 0.25rem 0 0; }
     #expensesTable, #expensesTable tbody, #peopleTable, #peopleTable tbody { display: block; width: 100%; }
     #expensesTable thead { display: none; }
     #expensesTable tbody tr, #peopleTable tbody tr {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0.5rem 0.75rem;
-        padding: 0.75rem 0;
-        border-bottom: 1px solid var(--linea-fuerte);
+        gap: 0.65rem 0.6rem;
+        align-items: end;
+        padding: 0.75rem 0.85rem 0.9rem;
+        margin-bottom: 0.75rem;
+        background: var(--superficie);
+        border-radius: var(--radio);
     }
-    #expensesTable td, #peopleTable tbody td { display: block; min-width: 0; padding: 0; border: 0; }
+    #expensesTable tbody tr:hover, #peopleTable tbody tr:hover { background: var(--superficie); }
+    #peopleTable tbody tr.row-danger, #peopleTable tbody tr.row-danger:hover { background: #33211f; }
+    #expensesTable td, #peopleTable tbody td { display: block; min-width: 0; padding: 0; border: 0; background: transparent; border-radius: 0; }
     #expensesTable td::before, #peopleTable tbody td::before {
         display: block;
-        margin-bottom: 0.1rem;
+        margin-bottom: 0.2rem;
         font-size: 0.75rem;
         color: var(--text-muted);
     }
-    .table-input { min-height: 44px; font-size: 16px; }
-    #expensesTable td:nth-child(1) { display: none; }
-    #expensesTable td:nth-child(2) { grid-column: 1 / -1; }
-    #expensesTable td:nth-child(2)::before { content: "Tipo de gasto"; }
-    #expensesTable td:nth-child(3)::before { content: "Monto"; }
-    #expensesTable td:nth-child(4)::before { content: "Cubierto"; }
-    #expensesTable td:nth-child(5)::before { content: "Estado"; }
-    #expensesTable td:nth-child(6) { justify-self: end; align-self: end; }
 
+    /* Campos con caja clara; el nombre o tipo es el título de la tarjeta */
+    #expensesTable .table-input, #peopleTable .table-input {
+        min-height: 44px;
+        padding: 0.4rem 0.6rem;
+        font-size: 16px;
+        background: var(--bg-color);
+        border: 1px solid var(--linea-fuerte);
+        border-radius: var(--radio-chico);
+    }
+    #expensesTable .expense-type, #peopleTable .person-name {
+        padding: 0.3rem 0;
+        font-size: 1.05rem;
+        font-weight: 700;
+        background: transparent;
+        border-color: transparent;
+    }
+    #expensesTable .expense-type:focus, #peopleTable .person-name:focus {
+        padding: 0.3rem 0.6rem;
+        background: var(--bg-color);
+        border-color: var(--warning);
+    }
+
+    /* Gasto: tipo y borrar arriba; monto, cubierto y estado debajo */
+    #expensesTable tbody tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 5.9rem; }
+    #expensesTable td:nth-child(1) { display: none; }
+    #expensesTable td:nth-child(2) { grid-column: 1 / 3; grid-row: 1; }
+    #expensesTable td:nth-child(6) { grid-column: 3; grid-row: 1; justify-self: end; }
+    #expensesTable td:nth-child(3) { grid-row: 2; }
+    #expensesTable td:nth-child(3)::before { content: "Monto"; }
+    #expensesTable td:nth-child(4) { grid-row: 2; align-self: start; padding-left: 0 !important; font-size: 1.05rem; }
+    #expensesTable td:nth-child(4)::before { content: "Cubierto"; font-weight: 400; }
+    #expensesTable td:nth-child(5) { grid-row: 2; align-self: center; justify-self: end; }
+
+    /* Los encabezados de Personas siguen filtrando, como botones */
     #peopleTable thead { display: block; }
-    #peopleTable thead tr { display: flex; flex-wrap: wrap; gap: 0.4rem; padding-bottom: 0.6rem; }
+    #peopleTable thead tr { display: flex; flex-wrap: wrap; gap: 0.4rem; padding-bottom: 0.75rem; }
     #peopleTable thead th { display: block; padding: 0 0.1rem 0 0.6rem !important; border: 1px solid var(--linea-fuerte); border-radius: 999px; }
     #peopleTable thead th:nth-child(n+4) { display: none; }
+
+    /* Persona: nombre y borrar arriba; matrícula y fecha debajo; observación al final */
+    #peopleTable tbody tr { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr) auto; }
+    #peopleTable tbody td:nth-child(2) { grid-column: 1 / 3; grid-row: 1; }
+    #peopleTable tbody td:last-child { grid-column: 3; grid-row: 1; justify-self: end; }
+    #peopleTable tbody td:nth-child(1) { grid-row: 2; }
     #peopleTable tbody td:nth-child(1)::before { content: "Matrícula"; }
-    #peopleTable tbody td:nth-child(2) { grid-column: 1 / -1; grid-row: 1; }
-    #peopleTable tbody td:nth-child(2)::before { content: "Nombre"; }
-    #peopleTable tbody td:nth-child(3)::before { content: "Próximo a vencer"; }
+    #peopleTable tbody td:nth-child(3) { grid-column: 2 / -1; grid-row: 2; }
+    #peopleTable tbody td:nth-child(3)::before { content: "Vence"; }
+    #peopleTable tbody tr.row-danger td:nth-child(3)::before { content: "Ya venció"; color: var(--danger); font-weight: 700; }
+    #peopleTable tbody td:nth-child(4) { grid-column: 1 / -1; grid-row: 3; }
     #peopleTable tbody td:nth-child(4)::before { content: "Observación"; }
-    #peopleTable tbody td:last-child { justify-self: end; align-self: end; }
 
     .filter-menu {
         position: fixed !important;

@@ -1,7 +1,7 @@
 // Permite abrir la app sin internet. Primero intenta la red, para que cada cambio que se
 // publique en GitHub llegue solo; si no hay conexión, usa la última copia guardada.
 // Los datos NO pasan por aquí: Google Apps Script se comunica directo y nunca se guarda en caché.
-const CACHE = 'sistema-tareas-v2';
+const CACHE = 'sistema-tareas-v3';
 const CACHE_FUENTES = 'sistema-tareas-fuentes-v1';
 const ARCHIVOS = [
     './', 'index.html', 'finanzas.html', 'styles.css', 'app.js', 'vistas.js', 'pwa.js', 'manifest.webmanifest',
@@ -31,6 +31,9 @@ self.addEventListener('push', (e) => {
     e.waitUntil(self.registration.showNotification(aviso.titulo || 'Sistema de Tareas', {
         body: aviso.cuerpo || '',
         tag: aviso.tag,
+        renotify: Boolean(aviso.tag), // vuelve a sonar aunque reemplace al anterior
+        requireInteraction: true,
+        vibrate: [300, 150, 300, 150, 300],
         icon: 'icons/icon-192.png',
         badge: 'icons/favicon-48.png',
         data: { url: aviso.url || 'index.html' }

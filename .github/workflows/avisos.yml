@@ -2,7 +2,12 @@ name: Avisos de vencimientos
 
 on:
   schedule:
-    - cron: '0 12 * * *' # 8:00 a. m. en República Dominicana (GitHub puede retrasarlo un poco)
+    # Hora de República Dominicana (UTC-4). GitHub puede retrasarlas unos minutos.
+    - cron: '7 12 * * *' # 8:07 a. m.
+    - cron: '7 17 * * *' # 1:07 p. m.
+    - cron: '7 22 * * *' # 6:07 p. m.
+    - cron: '17 0 * * *' # 8:17 p. m., antes de empezar las tareas
+    - cron: '17 2 * * *' # 10:17 p. m., mientras se hacen
   workflow_dispatch:
 
 permissions:
