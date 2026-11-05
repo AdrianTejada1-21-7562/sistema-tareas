@@ -61,7 +61,7 @@
 
             <main>
                 <!-- INICIO -->
-                <section class="vista" data-vista="inicio" data-titulo="Inicio">
+                <section class="vista" data-vista="inicio" data-titulo="Inicio" data-mes>
                     <div class="app-acciones">
                         <p>Activa los avisos para enterarte de lo que vence, aunque la app esté cerrada.</p>
                         <div>
@@ -128,10 +128,10 @@
                 </section>
 
                 <!-- TAREAS -->
-                <section class="vista" data-vista="tareas" data-titulo="Tareas y cobros" hidden>
-                    <div class="dos-columnas">
+                <section class="vista vista-angosta" data-vista="tareas" data-titulo="Tareas y cobros" hidden>
+                    <details id="panelTarea" class="desplegable">
+                        <summary class="btn btn-primary btn-block"><i data-lucide="plus"></i> Nueva tarea</summary>
                         <div class="panel">
-                            <h2 class="panel-titulo">Registrar tarea</h2>
                             <form id="taskForm" class="form-grid">
                                 <div class="input-group">
                                     <label for="taskName">Persona</label>
@@ -158,17 +158,20 @@
                                 <div><dt>Facturado este mes</dt><dd id="totalBilledAmount" class="text-success">$0.00</dd></div>
                             </dl>
                         </div>
+                    </details>
 
-                        <div class="panel">
-                            <h2 class="panel-titulo">Cuenta de una persona</h2>
-                            <div class="form-buscar">
-                                <div class="input-group">
-                                    <label for="searchPerson">Buscar persona</label>
-                                    <input type="text" id="searchPerson" list="peopleNamesList" autocomplete="off" placeholder="Escribe un nombre">
-                                </div>
-                                <button id="btnSearch" class="btn btn-primary" type="button"><i data-lucide="search"></i> Buscar</button>
+                    <div class="panel">
+                        <h2 class="panel-titulo">Cuenta de una persona</h2>
+                        <div class="form-buscar">
+                            <div class="input-group">
+                                <label for="searchPerson">Buscar persona</label>
+                                <input type="text" id="searchPerson" list="peopleNamesList" autocomplete="off" placeholder="Escribe un nombre">
                             </div>
+                            <button id="btnSearch" class="btn btn-outline" type="button"><i data-lucide="search"></i> Buscar</button>
+                        </div>
+                        <p id="cuentaAyuda" class="nota">Busca a alguien para ver cuánto debe, sus tareas y registrar un abono.</p>
 
+                        <div id="cuentaResultado" hidden>
                             <div id="searchPersonInfo" class="ficha" style="display: none;">
                                 <strong id="searchPersonNameDisplay"></strong>
                                 <span>Matrícula <b id="searchPersonMatDisplay"></b></span>
@@ -176,9 +179,9 @@
                             </div>
 
                             <dl class="cuentas cuentas-secundarias cuentas-busqueda">
+                                <div class="cuenta-total"><dt>Debe</dt><dd id="searchPaidAmount" class="text-danger">$0.00</dd></div>
                                 <div><dt>Total en tareas</dt><dd id="searchTotalAmount">$0.00</dd></div>
                                 <div><dt>Abonado</dt><dd id="searchAbonadoAmount" class="text-success">$0.00</dd></div>
-                                <div class="cuenta-total"><dt>Balance pendiente</dt><dd id="searchPaidAmount" class="text-danger">$0.00</dd></div>
                             </dl>
 
                             <div id="paymentSection" class="abono" style="display: none;">
@@ -226,13 +229,18 @@
                 <!-- PERSONAS -->
                 <section class="vista" data-vista="personas" data-titulo="Personas" hidden>
                     <div class="panel">
-                        <div class="panel-cabeza">
-                            <h2 class="panel-titulo">Seguimiento de personas</h2>
-                            <div class="panel-botones">
-                                <button id="clearFiltersBtn" class="btn btn-outline btn-sm" style="display: none;" type="button"><i data-lucide="filter-x"></i> Borrar filtros</button>
-                                <button id="addPersonBtn" class="btn btn-outline btn-sm" type="button"><i data-lucide="user-plus"></i> Añadir persona</button>
+                        <div class="personas-barra">
+                            <div class="input-group">
+                                <label for="personasBuscar">Buscar por nombre o matrícula</label>
+                                <input type="search" id="personasBuscar" autocomplete="off" placeholder="Escribe aquí">
                             </div>
+                            <button id="addPersonBtn" class="btn btn-primary" type="button"><i data-lucide="user-plus"></i> Añadir</button>
                         </div>
+                        <div class="personas-info">
+                            <span id="personasCuenta"></span>
+                            <button id="clearFiltersBtn" class="btn btn-outline btn-sm" style="display: none;" type="button"><i data-lucide="filter-x"></i> Borrar filtros</button>
+                        </div>
+                        <p id="personasVacio" class="nota" hidden>No hay ninguna persona con ese nombre o matrícula.</p>
                         <div class="table-container">
                             <table class="data-table tracking-table" id="peopleTable">
                                 <thead>
@@ -251,7 +259,7 @@
                 </section>
 
                 <!-- GASTOS -->
-                <section class="vista" data-vista="gastos" data-titulo="Gastos del mes" hidden>
+                <section class="vista" data-vista="gastos" data-titulo="Gastos del mes" data-mes hidden>
                     <div class="panel">
                         <div class="panel-cabeza">
                             <h2 class="panel-titulo">Gastos</h2>
@@ -285,27 +293,30 @@
                             <div><dt>Prestado, por cobrar</dt><dd id="metricLoanedStreet" class="text-warning">$0.00</dd></div>
                         </dl>
 
-                        <form id="capitalForm" class="form-fila">
-                            <div class="input-group">
-                                <label for="capSource">Fuente o persona</label>
-                                <input type="text" id="capSource" required placeholder="De dónde sale el dinero">
-                            </div>
-                            <div class="input-group">
-                                <label for="capAmount">Monto ($)</label>
-                                <input type="number" id="capAmount" step="0.01" required placeholder="0.00" inputmode="decimal">
-                            </div>
-                            <div class="input-group">
-                                <label for="capDate">Fecha</label>
-                                <input type="date" id="capDate" required>
-                            </div>
-                            <div class="input-group">
-                                <label for="capDesc">Descripción (opcional)</label>
-                                <input type="text" id="capDesc" placeholder="Ej. Capital para prestar">
-                            </div>
-                            <button type="submit" class="btn btn-primary"><i data-lucide="plus"></i> Registrar capital</button>
-                        </form>
+                        <details class="desplegable desplegable-interno">
+                            <summary class="btn btn-outline btn-block"><i data-lucide="plus"></i> Nuevo capital</summary>
+                            <form id="capitalForm" class="form-fila">
+                                <div class="input-group">
+                                    <label for="capSource">Fuente o persona</label>
+                                    <input type="text" id="capSource" required placeholder="De dónde sale el dinero">
+                                </div>
+                                <div class="input-group">
+                                    <label for="capAmount">Monto ($)</label>
+                                    <input type="number" id="capAmount" step="0.01" required placeholder="0.00" inputmode="decimal">
+                                </div>
+                                <div class="input-group">
+                                    <label for="capDate">Fecha</label>
+                                    <input type="date" id="capDate" required>
+                                </div>
+                                <div class="input-group">
+                                    <label for="capDesc">Descripción (opcional)</label>
+                                    <input type="text" id="capDesc" placeholder="Ej. Capital para prestar">
+                                </div>
+                                <button type="submit" class="btn btn-primary"><i data-lucide="plus"></i> Registrar capital</button>
+                            </form>
+                        </details>
 
-                        <p class="nota">Toca un capital para prestarle a un deudor, y un deudor para ver su historial. «Abonar» descuenta solo el balance de esa persona.</p>
+                        <p class="nota">Toca un capital para prestar y ver sus deudores. Toca un deudor para ver su historial.</p>
 
                         <label class="interruptor">
                             <input type="checkbox" id="showArchivedToggle"> Mostrar deudores archivados
@@ -335,7 +346,8 @@
                             <div><dt>Abonado</dt><dd id="metricDebtsTotalPaid" class="text-success">$0.00</dd></div>
                         </dl>
 
-                        <div class="deudas">
+                        <details class="desplegable desplegable-interno">
+                            <summary class="btn btn-outline btn-block"><i data-lucide="plus"></i> Nueva deuda</summary>
                             <form id="debtForm" class="form-grid">
                                 <div class="input-group">
                                     <label for="debtName">Persona</label>
@@ -358,24 +370,26 @@
                                 </div>
                                 <button type="submit" class="btn btn-primary btn-block"><i data-lucide="plus"></i> Registrar deuda</button>
                             </form>
-                            <div class="table-container tabla-acotada tabla-deudas">
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Persona</th>
-                                            <th class="text-right">Pendiente</th>
-                                            <th>Abonar</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="debtsSummaryBody"></tbody>
-                                </table>
-                            </div>
+                        </details>
+                        <div class="table-container tabla-deudas">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Persona</th>
+                                        <th class="text-right">Pendiente</th>
+                                        <th>Abonar</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="debtsSummaryBody"></tbody>
+                            </table>
                         </div>
                     </div>
                 </section>
             </main>
         </div>
     </div>
+
+    <div id="confirmacion" class="confirmacion" role="status" hidden></div>
 
     <div id="filterMenu" class="filter-menu hidden">
         <div class="filter-sort-options">

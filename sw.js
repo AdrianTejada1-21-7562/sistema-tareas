@@ -1,7 +1,7 @@
 // Permite abrir la app sin internet. Primero intenta la red, para que cada cambio que se
 // publique en GitHub llegue solo; si no hay conexión, usa la última copia guardada.
 // Los datos NO pasan por aquí: Google Apps Script se comunica directo y nunca se guarda en caché.
-const CACHE = 'sistema-tareas-v3';
+const CACHE = 'sistema-tareas-v4';
 const CACHE_FUENTES = 'sistema-tareas-fuentes-v1';
 const ARCHIVOS = [
     './', 'index.html', 'finanzas.html', 'styles.css', 'app.js', 'vistas.js', 'pwa.js', 'manifest.webmanifest',

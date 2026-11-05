@@ -30,6 +30,8 @@ let state = {
 };
 
 let editingTaskId = null; // Para editar tareas
+const personasAbiertas = new Set(); // tarjetas de Personas abiertas en el teléfono
+const venceAbiertas = new Set(); // filas de Vencimientos abiertas
 
 // --- Runtime UI State ---
 let expandedDebtors = new Set();
@@ -375,6 +377,19 @@ const hoyLocal = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
+
+const cuandoVence = (d) => {
+    if (d === 0) return 'Hoy';
+    if (d === 1) return 'Mañana';
+    if (d > 1) return `En ${d} días`;
+    return d === -1 ? 'Ayer' : `Hace ${-d} días`;
+};
+const diasHasta = (fecha) => {
+    const [ya, ma, da] = hoyLocal().split('-').map(Number);
+    const [y, m, d] = fecha.split('-').map(Number);
+    return Math.round((new Date(y, m - 1, d) - new Date(ya, ma - 1, da)) / 86400000);
+};
+const magnitudVence = (d) => (d < 0 ? 'vencida' : d === 0 ? 'hoy' : d <= 3 ? 'pronto' : d <= 7 ? 'semana' : 'lejos');
 
 const normalizeString = (str) => {
     if (!str) return '';
@@ -939,6 +954,14 @@ const renderPeople = () => {
 
     let peopleToRender = [...state.people];
 
+    // Buscador de la sección Personas
+    const buscador = document.getElementById('personasBuscar');
+    const textoBuscado = normalizeString(buscador ? buscador.value : '');
+    if (textoBuscado) {
+        peopleToRender = peopleToRender.filter(p =>
+            normalizeString(p.name).includes(textoBuscado) || normalizeString(p.matricula).includes(textoBuscado));
+    }
+
     // 1. Filtrar
     ['matricula', 'name', 'nextDate'].forEach(col => {
         if (filterState.checkboxesStatus[col] !== null) {
@@ -1000,7 +1023,8 @@ const renderPeople = () => {
         const dateStr = formatDateOnly(person.nextDate);
 
         const tr = document.createElement('tr');
-        if (trClass) tr.className = trClass;
+        tr.className = [trClass, personasAbiertas.has(person.id) ? 'persona-abierta' : ''].filter(Boolean).join(' ');
+        const diasPersona = person.nextDate ? diasHasta(person.nextDate) : null;
         tr.innerHTML = `
             <td><input type="text" class="table-input person-mat" data-id="${person.id}" value="${esc(person.matricula)}"></td>
             <td><input type="text" class="table-input person-name" data-id="${person.id}" value="${esc(person.name)}"></td>
@@ -1008,10 +1032,26 @@ const renderPeople = () => {
                 <input type="date" class="table-input person-date" data-id="${person.id}" value="${person.nextDate}">
             </td>
             <td><input type="text" class="table-input person-obs" data-id="${person.id}" value="${esc(person.observation)}"></td>
-            <td><button class="btn btn-delete btn-sm" data-id="${person.id}"><i data-lucide="trash-2"></i></button></td>
+            <td><button class="btn btn-delete btn-sm" data-id="${person.id}" aria-label="Eliminar a ${esc(person.name)}"><i data-lucide="trash-2"></i><span class="solo-telefono">Eliminar persona</span></button></td>
+            <td class="persona-resumen">
+                <button type="button" class="persona-toggle" data-id="${person.id}" aria-expanded="${personasAbiertas.has(person.id)}">
+                    <span class="persona-nombre">${esc(person.name) || 'Sin nombre'}</span>
+                    <span class="persona-cuando" data-magnitud="${diasPersona === null ? 'sin' : magnitudVence(diasPersona)}">${diasPersona === null ? 'Sin fecha' : cuandoVence(diasPersona)}</span>
+                    <i data-lucide="chevron-down"></i>
+                </button>
+            </td>
         `;
         tbody.appendChild(tr);
     });
+
+    const cuentaPersonas = document.getElementById('personasCuenta');
+    if (cuentaPersonas) {
+        cuentaPersonas.textContent = textoBuscado
+            ? `${peopleToRender.length} de ${state.people.length} personas`
+            : `${state.people.length} personas`;
+    }
+    const sinResultados = document.getElementById('personasVacio');
+    if (sinResultados) sinResultados.hidden = peopleToRender.length > 0;
 
     renderVencimientos();
 
@@ -1024,33 +1064,27 @@ const renderVencimientos = () => {
     const lista = document.getElementById('venceLista');
     if (!lista) return;
 
-    const [ya, ma, da] = hoyLocal().split('-').map(Number);
-    const hoy = new Date(ya, ma - 1, da);
     const filas = state.people
         .filter(p => p.nextDate && (p.name || '').trim())
-        .map(p => {
-            const [y, m, d] = p.nextDate.split('-').map(Number);
-            return { p, dias: Math.round((new Date(y, m - 1, d) - hoy) / 86400000) };
-        })
+        .map(p => ({ p, dias: diasHasta(p.nextDate) }))
         .sort((a, b) => a.dias - b.dias);
 
-    const cuando = (d) => {
-        if (d === 0) return 'Hoy';
-        if (d === 1) return 'Mañana';
-        if (d > 1) return `En ${d} días`;
-        return d === -1 ? 'Ayer' : `Hace ${-d} días`;
-    };
     const fila = ({ p, dias }, magnitud) => `
-        <li class="vence-fila" data-magnitud="${magnitud}">
-            <span class="vence-punto" aria-hidden="true"></span>
-            <div class="vence-quien">
-                <strong>${esc(p.name)}</strong>
-                <span>${[p.matricula ? `Matrícula ${esc(p.matricula)}` : '', esc(p.observation)].filter(Boolean).join(' · ')}</span>
-            </div>
-            <div class="vence-cuando"><strong>${cuando(dias)}</strong><span>${formatDateOnly(p.nextDate)}</span></div>
-            <div class="vence-acciones">
-                <input type="date" class="vence-fecha" data-id="${p.id}" value="${esc(p.nextDate)}" aria-label="Cambiar fecha de ${esc(p.name)}">
-                <button class="btn btn-outline btn-sm vence-cuenta" type="button" data-name="${esc(p.name)}">Ver cuenta</button>
+        <li class="vence-fila${venceAbiertas.has(p.id) ? ' vence-abierta' : ''}" data-magnitud="${magnitud}">
+            <button type="button" class="vence-cabeza" data-id="${p.id}" aria-expanded="${venceAbiertas.has(p.id)}">
+                <span class="vence-punto" aria-hidden="true"></span>
+                <span class="vence-nombre">${esc(p.name)}</span>
+                <span class="vence-tiempo">${cuandoVence(dias)}</span>
+                <i data-lucide="chevron-down"></i>
+            </button>
+            <div class="vence-detalle">
+                <p class="vence-datos">${[p.matricula ? `Matrícula ${esc(p.matricula)}` : '', esc(p.observation)].filter(Boolean).join(' · ') || 'Sin observación'}</p>
+                <div class="vence-acciones">
+                    <label>Cambiar fecha
+                        <input type="date" class="vence-fecha" data-id="${p.id}" value="${esc(p.nextDate)}">
+                    </label>
+                    <button class="btn btn-primary vence-cuenta" type="button" data-name="${esc(p.name)}">Ver cuenta</button>
+                </div>
             </div>
         </li>`;
     const grupo = (titulo, items, magnitud) => items.length === 0 ? '' : `
@@ -1517,7 +1551,7 @@ const setupTaskEventListeners = () => {
             }
             editingTaskId = null;
             const submitBtn = document.querySelector('#taskForm button[type="submit"]');
-            submitBtn.innerHTML = '<i data-lucide="plus-circle"></i> REGISTRAR';
+            submitBtn.innerHTML = '<i data-lucide="plus"></i> Registrar tarea';
             submitBtn.style.backgroundColor = '';
             submitBtn.style.color = '';
 
@@ -1568,10 +1602,13 @@ const setupTaskEventListeners = () => {
                 document.getElementById('taskAmount').value = task.amount;
 
                 editingTaskId = task.id;
+                const panelTarea = document.getElementById('panelTarea');
+                panelTarea.open = true;
+                panelTarea.scrollIntoView({ block: 'start' });
 
                 // Cambiar apariencia del botón
                 const submitBtn = document.querySelector('#taskForm button[type="submit"]');
-                submitBtn.innerHTML = '<i data-lucide="save"></i> GUARDAR CAMBIOS';
+                submitBtn.innerHTML = '<i data-lucide="save"></i> Guardar cambios';
                 submitBtn.style.backgroundColor = 'var(--success)';
                 submitBtn.style.color = '#fff';
                 lucide.createIcons();
@@ -1592,6 +1629,8 @@ const setupTaskEventListeners = () => {
         let htmlRows = '';
         let foundTasks = false;
 
+        document.getElementById('cuentaResultado').hidden = query.trim() === '';
+        document.getElementById('cuentaAyuda').hidden = query.trim() !== '';
         if (query.trim() === '') {
             historyContainer.style.display = 'none';
             document.getElementById('searchTotalAmount').textContent = formatCurrency(0);
@@ -1828,11 +1867,19 @@ const setupTaskEventListeners = () => {
     });
 
     document.getElementById('addPersonBtn').addEventListener('click', () => {
+        const nuevaId = Date.now();
         state.people.push({
-            id: Date.now(), matricula: "", name: "Nueva Persona", nextDate: "", taskCount: "", lastPayment: "", observation: ""
+            id: nuevaId, matricula: "", name: "Nueva Persona", nextDate: "", taskCount: "", lastPayment: "", observation: ""
         });
+        personasAbiertas.add(nuevaId);
+        document.getElementById('personasBuscar').value = '';
         saveData();
         renderPeople();
+        const campoNombre = document.querySelector(`.person-name[data-id="${nuevaId}"]`);
+        if (campoNombre) {
+            campoNombre.scrollIntoView({ block: 'center' });
+            campoNombre.select();
+        }
     });
 
     // Delegación de eventos para inputs dinámicos en la tabla de gastos
@@ -2402,11 +2449,45 @@ document.addEventListener('change', (e) => {
     renderPeople();
 });
 document.addEventListener('click', (e) => {
+    const cabeza = e.target.closest('.vence-cabeza');
+    if (cabeza) {
+        const id = parseFloat(cabeza.dataset.id);
+        const abierta = cabeza.closest('.vence-fila').classList.toggle('vence-abierta');
+        cabeza.setAttribute('aria-expanded', abierta);
+        if (abierta) venceAbiertas.add(id); else venceAbiertas.delete(id);
+        return;
+    }
+    const tarjeta = e.target.closest('.persona-toggle');
+    if (tarjeta) {
+        const id = parseFloat(tarjeta.dataset.id);
+        const abierta = tarjeta.closest('tr').classList.toggle('persona-abierta');
+        tarjeta.setAttribute('aria-expanded', abierta);
+        if (abierta) personasAbiertas.add(id); else personasAbiertas.delete(id);
+        return;
+    }
     const boton = e.target.closest('.vence-cuenta');
     if (!boton) return;
     document.getElementById('searchPerson').value = boton.dataset.name;
     document.getElementById('btnSearch').click();
     location.hash = 'tareas';
+});
+
+document.getElementById('personasBuscar').addEventListener('input', () => renderPeople());
+// Elegir un nombre de la lista ya muestra su cuenta, sin tener que tocar Buscar
+document.getElementById('searchPerson').addEventListener('change', () => document.getElementById('btnSearch').click());
+
+// Al guardar un formulario se cierra y se confirma, para volver a la lista
+let temporizadorConfirmacion = null;
+[['taskForm', 'Tarea guardada'], ['capitalForm', 'Capital registrado'], ['debtForm', 'Deuda registrada']].forEach(([id, texto]) => {
+    document.getElementById(id).addEventListener('submit', (e) => {
+        const panel = e.target.closest('details');
+        if (panel) panel.open = false;
+        const aviso = document.getElementById('confirmacion');
+        aviso.textContent = texto;
+        aviso.hidden = false;
+        clearTimeout(temporizadorConfirmacion);
+        temporizadorConfirmacion = setTimeout(() => { aviso.hidden = true; }, 3000);
+    });
 });
 
 init();

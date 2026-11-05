@@ -533,3 +533,180 @@ tr.row-success { background: rgba(127, 214, 160, 0.06); }
     #searchHistoryBody td:last-child { white-space: normal; }
     #searchHistoryBody td:first-child, #searchPaymentsBody td:first-child { white-space: nowrap; font-size: 0.82rem; }
 }
+
+/* --- Listas primero: lo que se edita se abre al tocar --- */
+.vista-angosta { max-width: 720px; }
+.solo-telefono { display: none; }
+.persona-resumen { display: none; }
+
+.desplegable > summary { list-style: none; cursor: pointer; }
+.desplegable > summary::-webkit-details-marker { display: none; }
+.desplegable > summary svg { transition: transform 150ms ease-out; }
+.desplegable[open] > summary svg { transform: rotate(45deg); }
+.desplegable[open] > summary { background: transparent; border-color: var(--linea-fuerte); color: var(--text-main); margin-bottom: 0.75rem; }
+.desplegable-interno form { margin-bottom: 0.75rem; }
+.desplegable-interno { margin-bottom: 0.25rem; }
+.cuentas-busqueda .cuenta-total dd { font-size: 1.35rem; }
+
+/* Vencimientos: una línea por persona */
+.vence-fila { display: block; padding: 0; }
+.vence-cabeza {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto 18px;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    min-height: 52px;
+    padding: 0.5rem 0;
+    background: transparent;
+    border: 0;
+    color: var(--text-main);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.vence-cabeza > svg { width: 18px; height: 18px; color: var(--text-muted); transition: transform 150ms ease-out; }
+.vence-abierta .vence-cabeza > svg { transform: rotate(180deg); }
+.vence-nombre { font-weight: 600; overflow-wrap: anywhere; }
+.vence-tiempo { font-weight: 600; font-size: 0.9rem; white-space: nowrap; }
+.vence-fila[data-magnitud="vencida"] .vence-tiempo, .vence-fila[data-magnitud="hoy"] .vence-tiempo { color: var(--danger); font-weight: 700; }
+.vence-fila[data-magnitud="pronto"] .vence-tiempo { color: var(--warning); }
+.vence-fila[data-magnitud="semana"] .vence-tiempo { color: var(--text-muted); }
+.vence-detalle { display: none; padding: 0 0 0.9rem 2rem; }
+.vence-abierta .vence-detalle { display: block; }
+.vence-datos { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 0.6rem; overflow-wrap: anywhere; }
+.vence-acciones { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.6rem; margin: 0; }
+.vence-acciones label { display: grid; gap: 0.25rem; }
+.vence-acciones input { width: 100%; min-height: 44px; font-size: 16px; padding: 0.4rem 0.6rem; }
+.vence-acciones .btn { min-height: 44px; }
+
+/* Personas */
+.personas-barra { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.6rem; align-items: end; max-width: 620px; }
+.personas-info { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-height: 34px; margin: 0.6rem 0 0.35rem; color: var(--text-muted); font-size: 0.85rem; }
+
+/* Mensaje al guardar */
+.confirmacion {
+    position: fixed;
+    left: 50%;
+    bottom: 1.5rem;
+    z-index: 60;
+    transform: translateX(-50%);
+    padding: 0.6rem 1rem;
+    background: var(--success);
+    color: #14191a;
+    border-radius: var(--radio-chico);
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+
+@media (max-width: 768px) {
+    .confirmacion { bottom: calc(var(--alto-menu-tel) + 0.75rem + env(safe-area-inset-bottom)); }
+    .vence-detalle { padding-left: 0; }
+    .cuentas-secundarias { grid-template-columns: minmax(0, 1fr); }
+
+    /* Personas: lista de una línea; los datos se abren al tocar */
+    .panel:has(#peopleTable) { background: transparent; padding: 0; }
+    #peopleTable thead { display: none; }
+    #peopleTable tbody tr, #peopleTable tbody tr.row-danger { display: block; padding: 0; margin-bottom: 0.4rem; }
+    #peopleTable tbody td { display: none; }
+    #peopleTable tbody td.persona-resumen { display: block; }
+    .persona-toggle {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto 18px;
+        align-items: center;
+        gap: 0.6rem;
+        width: 100%;
+        min-height: 54px;
+        padding: 0.5rem 0.85rem;
+        background: transparent;
+        border: 0;
+        color: var(--text-main);
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+    .persona-toggle > svg { width: 18px; height: 18px; color: var(--text-muted); transition: transform 150ms ease-out; }
+    .persona-nombre { font-weight: 600; overflow-wrap: anywhere; }
+    .persona-cuando { font-size: 0.88rem; font-weight: 600; white-space: nowrap; color: var(--text-muted); }
+    .persona-cuando[data-magnitud="vencida"], .persona-cuando[data-magnitud="hoy"] { color: var(--danger); font-weight: 700; }
+    .persona-cuando[data-magnitud="pronto"] { color: var(--warning); }
+    .persona-cuando[data-magnitud="sin"] { font-weight: 400; }
+
+    #peopleTable tbody tr.persona-abierta {
+        display: grid;
+        grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+        gap: 0.65rem 0.6rem;
+        padding: 0 0.85rem 0.9rem;
+    }
+    #peopleTable tbody tr.persona-abierta td { display: block; }
+    #peopleTable tbody tr.persona-abierta td.persona-resumen { grid-column: 1 / -1; grid-row: 1; margin: 0 -0.85rem; }
+    .persona-abierta .persona-toggle > svg { transform: rotate(180deg); }
+    #peopleTable tbody td:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
+    #peopleTable tbody td:nth-child(2)::before { content: "Nombre"; }
+    #peopleTable tbody td:nth-child(1) { grid-column: 1; grid-row: 3; }
+    #peopleTable tbody td:nth-child(3) { grid-column: 2; grid-row: 3; }
+    #peopleTable tbody td:nth-child(4) { grid-column: 1 / -1; grid-row: 4; }
+    #peopleTable tbody td:nth-child(5) { grid-column: 1 / -1; grid-row: 5; justify-self: start; }
+    #peopleTable tbody td:last-child { justify-self: stretch; align-self: auto; }
+    #peopleTable tbody td:nth-child(5)::before, #peopleTable tbody td.persona-resumen::before { display: none; }
+    #peopleTable .person-name {
+        padding: 0.4rem 0.6rem;
+        font-size: 16px;
+        font-weight: 400;
+        background: var(--bg-color);
+        border-color: var(--linea-fuerte);
+    }
+    #peopleTable .btn-delete { display: inline-flex; width: auto; gap: 0.4rem; padding: 0.3rem 0.5rem; }
+    .solo-telefono { display: inline; font-size: 0.85rem; }
+
+    /* Gastos: sin título repetido */
+    .panel:has(#expensesTable) .panel-titulo { display: none; }
+
+    /* Préstamos y deudas: tarjetas que caben, sin deslizar de lado */
+    .tabla-ancha, .tabla-deudas { overflow: visible; max-height: none; }
+    .tabla-ancha thead, .tabla-deudas thead { display: none; }
+    .tabla-ancha .data-table, .tabla-deudas .data-table, .tabla-ancha tbody, .tabla-deudas tbody { display: block; width: 100%; min-width: 0; }
+    .tabla-ancha tbody tr, .tabla-deudas tbody tr {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.4rem 0.75rem;
+        padding: 0.7rem 0.5rem;
+        border-bottom: 1px solid var(--linea);
+    }
+    .tabla-ancha tbody td, .tabla-deudas tbody td {
+        display: block;
+        min-width: 0;
+        padding: 0 !important;
+        border: 0;
+        text-align: left !important;
+        overflow-wrap: anywhere;
+    }
+    .tabla-ancha tbody td:first-child, .tabla-deudas tbody td:first-child,
+    .tabla-ancha tbody td[colspan], .tabla-deudas tbody td[colspan] { grid-column: 1 / -1; }
+    .tabla-ancha tbody td:has(input, button), .tabla-deudas tbody td:has(input, button) { grid-column: 1 / -1; }
+    .tabla-ancha tbody td:nth-child(2):not([colspan]):not(:has(input, button))::before { content: "Monto"; }
+    .tabla-ancha tbody td:nth-child(3):not([colspan]):not(:has(input, button))::before { content: "Disponible o pendiente"; }
+    .tabla-deudas tbody td:nth-child(2):not([colspan]):not(:has(input, button))::before { content: "Pendiente"; }
+    .tabla-ancha tbody td::before, .tabla-deudas tbody td::before { display: block; font-size: 0.75rem; font-weight: 400; color: var(--text-muted); }
+    .tabla-ancha tbody td div:has(> input), .tabla-deudas tbody td div:has(> input) { display: flex; flex-wrap: wrap; justify-content: flex-start !important; gap: 0.4rem !important; }
+    .tabla-ancha tbody td input, .tabla-deudas tbody td input {
+        flex: 1 1 110px;
+        width: auto !important;
+        min-width: 0 !important;
+        min-height: 44px;
+        font-size: 16px;
+        padding: 0.4rem 0.6rem;
+        text-align: left !important;
+        background: var(--bg-color) !important;
+        border: 1px solid var(--linea-fuerte) !important;
+        border-radius: var(--radio-chico);
+    }
+    .tabla-ancha tbody td .btn, .tabla-deudas tbody td .btn { min-width: 44px; min-height: 44px; padding: 0.3rem 0.6rem !important; }
+    .tabla-ancha tbody td .btn-delete, .tabla-deudas tbody td .btn-delete { justify-self: start; }
+    /* Formulario de Prestar y abonos: un campo por línea donde hace falta */
+    .tabla-ancha tbody td div:has(> .new-pool-loan-name) { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tabla-ancha .new-pool-loan-name, .tabla-ancha .new-pool-loan-desc, .tabla-ancha .new-pool-loan-btn { grid-column: 1 / -1; }
+    .tabla-ancha .new-pool-loan-date { padding-right: 0.3rem !important; }
+    .tabla-ancha .pool-borrower-abono-desc { flex-basis: 100%; }
+}

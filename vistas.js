@@ -4,6 +4,7 @@
     const vistas = [...document.querySelectorAll('.vista')];
     const enlaces = [...document.querySelectorAll('[data-nav]')];
     const titulo = document.getElementById('vistaTitulo');
+    const selectorMes = document.querySelector('.mes');
 
     const mostrar = (mover) => {
         const pedida = location.hash.slice(1);
@@ -14,6 +15,7 @@
             else a.removeAttribute('aria-current');
         });
         titulo.textContent = actual.dataset.titulo;
+        selectorMes.hidden = !('mes' in actual.dataset);
         document.title = `${actual.dataset.titulo} · Sistema de Tareas`;
         if (mover) {
             window.scrollTo(0, 0);
